@@ -23,7 +23,7 @@
 #
 
 # Safety
-if ($#argv != 2) goto usage
+if ($#argv < 2 || $#argv > 3) goto usage
 
 echo ""
 
@@ -44,6 +44,25 @@ else if ($selection == 'clean') then
   echo "clean: recompiling all modules"
 else
   goto usage
+endif
+
+# Optional third argument: also build LADDIE as a linkable static library (for coupling,
+# e.g. FISOC). This also forces position-independent code (-fPIC) across UPSY/UFEMISM/LADDIE.
+set build_library = 0
+if ($#argv == 3) then
+  if ("$argv[3]" == 'library') then
+    set build_library = 1
+    echo "library: also building LADDIE as a position-independent static library"
+  else
+    goto usage
+  endif
+endif
+
+# Translate the library choice into a CMake flag
+if ($build_library == 1) then
+  set cmake_lib_flag = ON
+else
+  set cmake_lib_flag = OFF
 endif
 
 echo ""
@@ -87,6 +106,7 @@ if ($version == 'dev') then
 
   cmake -G Ninja -DPETSC_DIR=`brew --prefix petsc` \
     -DBUILD_LADDIE=ON \
+    -DBUILD_LADDIE_LIBRARY=$cmake_lib_flag \
     -DDO_ASSERTIONS=ON \
     -DDO_RESOURCE_TRACKING=ON \
     -DEXTRA_Fortran_FLAGS="$cmake_flags" ..
@@ -95,6 +115,7 @@ else if ($version == 'perf') then
 
   cmake -G Ninja -DPETSC_DIR=`brew --prefix petsc` \
     -DBUILD_LADDIE=ON \
+    -DBUILD_LADDIE_LIBRARY=$cmake_lib_flag \
     -DDO_ASSERTIONS=OFF \
     -DDO_RESOURCE_TRACKING=OFF \
     -DEXTRA_Fortran_FLAGS="$cmake_flags" ..
@@ -148,7 +169,7 @@ exit $compile_exit_code
 usage:
 
 echo ""
-echo "Usage: ./compile_LADDIE.csh  [VERSION]  [SELECTION]"
+echo "Usage: ./compile_LADDIE.csh  [VERSION]  [SELECTION]  [LIBRARY]"
 echo ""
 echo "  [VERSION]: dev, perf"
 echo ""
@@ -166,6 +187,13 @@ echo "             definition of a derived type without recompiling all of the m
 echo "             type. In that case, better to just do a clean compilation."
 echo ""
 echo "    clean: recompile all modules. Always works, but slower."
+echo ""
+echo "  [LIBRARY] (optional): library"
+echo ""
+echo "    library: in addition to the LADDIE_program executable, build LADDIE as a linkable"
+echo "             static library (libLADDIE_library.a) for coupling into other codes (e.g. FISOC),"
+echo "             and force position-independent code (-fPIC) across UPSY/UFEMISM/LADDIE."
+echo "             Omit this argument for a normal standalone build."
 echo ""
 
 exit 1
