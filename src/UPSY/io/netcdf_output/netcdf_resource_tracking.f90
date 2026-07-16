@@ -54,6 +54,11 @@ contains
 
     ! Encode subroutine names and gather computation times
     do i = 1, n_routines
+      ! routine_name_encoded is reused across iterations, but encode_subroutine_path_as_integer
+      ! only fills the first LEN(routine_path) elements of it (Fortran sequence association,
+      ! since routine_path is a variable-length allocatable string) -- reset it first, or a
+      ! shorter name here retains leftover characters from a previous, longer one.
+      routine_name_encoded = 0
       call encode_subroutine_path_as_integer( resource_tracker( i)%routine_path, routine_name_encoded)
       routine_names_encoded( i,:) = routine_name_encoded
       tcomp( i,1) = resource_tracker( i)%tcomp
