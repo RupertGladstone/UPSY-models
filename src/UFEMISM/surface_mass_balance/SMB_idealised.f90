@@ -5,7 +5,7 @@ module SMB_idealised
   use model_configuration, only: C
   use call_stack_and_comp_time_tracking, only: init_routine, finalise_routine, crash
   use mesh_types, only: type_mesh
-  use SMB_model_basic, only: atype_SMB_model, type_SMB_model_context_allocate, &
+  use SMB_model_basic, only: atype_SMB_model, &
     type_SMB_model_context_initialise, type_SMB_model_context_run, &
     type_SMB_model_context_remap
   use Halfar_SIA_solution, only: Halfar
@@ -20,8 +20,8 @@ module SMB_idealised
 
     contains
 
-      procedure, public :: allocate_SMB_model   => allocate_SMB_model_idealised_abs
-      procedure, public :: deallocate_SMB_model => deallocate_SMB_model_idealised_abs
+      procedure, public :: allocate   => SMB_model_idealised_allocate
+      procedure, public :: deallocate => SMB_model_idealised_deallocate
       procedure, public :: initialise_SMB_model => initialise_SMB_model_idealised_abs
       procedure, public :: run_SMB_model        => run_SMB_model_idealised_abs
       procedure, public :: remap_SMB_model      => remap_SMB_model_idealised_abs
@@ -34,38 +34,50 @@ module SMB_idealised
 
 contains
 
-  subroutine allocate_SMB_model_idealised_abs( self, context)
+  subroutine SMB_model_idealised_allocate( self, region_name, mesh)
 
     ! In/output variables:
-    class(type_SMB_model_idealised),               intent(inout) :: self
-    type(type_SMB_model_context_allocate), target, intent(in   ) :: context
+    class(type_SMB_model_idealised), intent(inout) :: self
+    character(len=*),                intent(in   ) :: region_name
+    type(type_mesh), target,         intent(in   ) :: mesh
 
     ! Local variables:
-    character(len=1024), parameter :: routine_name = 'allocate_SMB_model_idealised_abs'
+    character(len=*), parameter :: routine_name = 'SMB_model_idealised_allocate'
 
     ! Add routine to call stack
     call init_routine( routine_name)
 
+    ! Allocate all the stuff that is common to all SMB models
+    call self%allocate_SMB_model( 'SMB_idealised', region_name, mesh)
+
+    ! Allocate all the stuff that is specific to the idealised SMB model
+
     ! Remove routine from call stack
     call finalise_routine( routine_name)
 
-  end subroutine allocate_SMB_model_idealised_abs
+  end subroutine SMB_model_idealised_allocate
 
-  subroutine deallocate_SMB_model_idealised_abs( self)
+  subroutine SMB_model_idealised_deallocate( self)
 
     ! In/output variables:
     class(type_SMB_model_idealised), intent(inout) :: self
 
     ! Local variables:
-    character(len=1024), parameter :: routine_name = 'deallocate_SMB_model_idealised_abs'
+    character(len=*), parameter :: routine_name = 'SMB_model_idealised_deallocate'
 
     ! Add routine to call stack
     call init_routine( routine_name)
 
+    ! Deallocate all the stuff that is common to all SMB models
+    call self%deallocate_SMB_model()
+
+    ! Deallocate all the stuff that is specific to SMB model idealised
+
+
     ! Remove routine from call stack
     call finalise_routine( routine_name)
 
-  end subroutine deallocate_SMB_model_idealised_abs
+  end subroutine SMB_model_idealised_deallocate
 
   subroutine initialise_SMB_model_idealised_abs( self, context)
 

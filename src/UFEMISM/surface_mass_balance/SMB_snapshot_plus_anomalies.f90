@@ -5,7 +5,7 @@ module SMB_snapshot_plus_anomalies
   use model_configuration, only: C
   use call_stack_and_comp_time_tracking, only: init_routine, finalise_routine, crash, warning
   use mesh_types, only: type_mesh
-  use SMB_model_basic, only: atype_SMB_model, type_SMB_model_context_allocate, &
+  use SMB_model_basic, only: atype_SMB_model, &
     type_SMB_model_context_initialise, type_SMB_model_context_run, &
     type_SMB_model_context_remap
   use Arakawa_grid_mod, only: Arakawa_grid
@@ -23,6 +23,7 @@ module SMB_snapshot_plus_anomalies
   public :: type_SMB_model_snp_p_anml
 
   type, extends(atype_SMB_model) :: type_SMB_model_snp_p_anml
+    !< Variables and functions that are specific to the snapshot-plus-anomalies SMB model
 
     ! Baseline climate
     real(dp), dimension(:,:), contiguous, pointer :: T2m_baseline
@@ -51,13 +52,12 @@ module SMB_snapshot_plus_anomalies
 
     contains
 
-      procedure, public :: allocate_SMB_model   => allocate_SMB_model_snp_p_anml_abs
-      procedure, public :: deallocate_SMB_model => deallocate_SMB_model_snp_p_anml_abs
+      procedure, public :: allocate   => SMB_model_snp_p_anml_allocate
+      procedure, public :: deallocate => SMB_model_snp_p_anml_deallocate
       procedure, public :: initialise_SMB_model => initialise_SMB_model_snp_p_anml_abs
       procedure, public :: run_SMB_model        => run_SMB_model_snp_p_anml_abs
       procedure, public :: remap_SMB_model      => remap_SMB_model_snp_p_anml_abs
 
-      procedure, private :: allocate_SMB_model_snp_p_anml
       procedure, private :: initialise_SMB_model_snp_p_anml
       procedure, private :: run_SMB_model_snp_p_anml
       procedure, private :: update_timeframes
@@ -65,42 +65,6 @@ module SMB_snapshot_plus_anomalies
   end type type_SMB_model_snp_p_anml
 
 contains
-
-  subroutine allocate_SMB_model_snp_p_anml_abs( self, context)
-
-    ! In/output variables:
-    class(type_SMB_model_snp_p_anml),               intent(inout) :: self
-    type(type_SMB_model_context_allocate), target, intent(in   ) :: context
-
-    ! Local variables:
-    character(len=1024), parameter :: routine_name = 'allocate_SMB_model_snp_p_anml_abs'
-
-    ! Add routine to call stack
-    call init_routine( routine_name)
-
-    ! Retrieve input variables from context object
-    call self%allocate_SMB_model_snp_p_anml
-
-    ! Remove routine from call stack
-    call finalise_routine( routine_name)
-
-  end subroutine allocate_SMB_model_snp_p_anml_abs
-
-  subroutine deallocate_SMB_model_snp_p_anml_abs( self)
-
-    ! In/output variables:
-    class(type_SMB_model_snp_p_anml), intent(inout) :: self
-
-    ! Local variables:
-    character(len=1024), parameter :: routine_name = 'deallocate_SMB_model_snp_p_anml'
-
-    ! Add routine to call stack
-    call init_routine( routine_name)
-
-    ! Remove routine from call stack
-    call finalise_routine( routine_name)
-
-  end subroutine deallocate_SMB_model_snp_p_anml_abs
 
   subroutine initialise_SMB_model_snp_p_anml_abs( self, context)
 
@@ -176,16 +140,23 @@ contains
 
 
 
-  subroutine allocate_SMB_model_snp_p_anml( self)
+  subroutine SMB_model_snp_p_anml_allocate( self, region_name, mesh)
 
     ! In/output variables:
     class(type_SMB_model_snp_p_anml), intent(inout) :: self
+    character(len=*),                 intent(in   ) :: region_name
+    type(type_mesh), target,          intent(in   ) :: mesh
 
     ! Local variables:
-    character(len=1024), parameter :: routine_name = 'allocate_SMB_model_snp_p_anml'
+    character(len=*), parameter :: routine_name = 'SMB_model_snp_p_anml_allocate'
 
     ! Add routine to call stack
     call init_routine( routine_name)
+
+    ! Allocate all the stuff that is common to all SMB models
+    call self%allocate_SMB_model( 'SMB_snp_p_anml', region_name, mesh)
+
+    ! Allocate all the stuff that is specific to the snapshot-plus-anomalies SMB model
 
     ! Baseline climate
     call self%create_field( self%T2m_baseline, self%wT2m_baseline, &
@@ -257,7 +228,45 @@ contains
     ! Remove routine from call stack
     call finalise_routine( routine_name)
 
-  end subroutine allocate_SMB_model_snp_p_anml
+  end subroutine SMB_model_snp_p_anml_allocate
+
+  subroutine SMB_model_snp_p_anml_deallocate( self)
+
+    ! In/output variables:
+    class(type_SMB_model_snp_p_anml), intent(inout) :: self
+
+    ! Local variables:
+    character(len=*), parameter :: routine_name = 'SMB_model_snp_p_anml_deallocate'
+
+    ! Add routine to call stack
+    call init_routine( routine_name)
+
+    ! Deallocate all the stuff that is common to all SMB models
+    call self%deallocate_SMB_model()
+
+    ! Deallocate all the stuff that is specific to SMB model snp_p_anml
+
+    nullify( self%T2m_baseline)
+    nullify( self%SMB_baseline)
+
+    ! Two anomaly timeframes enveloping the current model time
+    nullify( self%T2m_anomaly_0)
+    nullify( self%SMB_anomaly_0)
+
+    nullify( self%T2m_anomaly_1)
+    nullify( self%SMB_anomaly_1)
+
+    ! Time-weighted anomaly
+    nullify( self%T2m_anomaly)
+    nullify( self%SMB_anomaly)
+
+    ! Applied climate
+    nullify( self%T2m)
+
+    ! Remove routine from call stack
+    call finalise_routine( routine_name)
+
+  end subroutine SMB_model_snp_p_anml_deallocate
 
   subroutine initialise_SMB_model_snp_p_anml( self, mesh)
 
