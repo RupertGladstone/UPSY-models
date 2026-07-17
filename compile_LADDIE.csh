@@ -46,8 +46,7 @@ else
   goto usage
 endif
 
-# Optional third argument: also build LADDIE as a linkable static library (for coupling,
-# e.g. FISOC). This also forces position-independent code (-fPIC) across UPSY/UFEMISM/LADDIE.
+# LADDIE can optionally also be built as a linkable static library (for coupling, e.g. FISOC)
 set build_library = 0
 if ($#argv == 3) then
   if ("$argv[3]" == 'library') then

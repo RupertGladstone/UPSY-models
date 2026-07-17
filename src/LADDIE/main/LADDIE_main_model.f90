@@ -143,6 +143,10 @@ contains
       case ('read_transects')
         ! Compute SGD from transects
         call compute_SGD_at_transects(mesh, laddie, forcing)
+      case ('from_ISM')
+        ! Do nothing: laddie%SGD is populated externally (e.g. by FISOC, from an
+        ! ice-sheet model's own subglacial hydrology output) before this routine
+        ! is called, and is trusted as-is.
     end select
 
     ! Set values to zero if outside laddie mask
