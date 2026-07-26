@@ -80,7 +80,7 @@ contains
       ), trim( test_name) // '/allocate')
 
     ! Initialise the demo model and test if that worked
-    call a1%initialise( a1%ct_initialise( H0, till_friction_angle_uniform, beta_sq_uniform))
+    call a1%initialise( H0, till_friction_angle_uniform, beta_sq_uniform)
     call unit_test( (&
       minval( a1%H( mesh1%pai_V%i1: mesh1%pai_V%i2)) == H0 .and. &
       minval( a1%till_friction_angle( mesh1%pai_V%i1: mesh1%pai_V%i2)) == till_friction_angle_uniform .and. &
@@ -88,13 +88,13 @@ contains
       ), trim( test_name) // '/initialise')
 
     ! Run the demo model and test if that worked
-    call a1%run( a1%ct_run( H_new, dH))
+    call a1%run( H_new, dH)
     call unit_test( (&
       minval( a1%H( mesh1%pai_V%i1: mesh1%pai_V%i2)) == H0 + dH &
       ), trim( test_name) // '/run')
 
     ! Remap the demo model and test if that worked
-    call a1%remap( a1%ct_remap( mesh2))
+    call a1%remap( mesh2)
     call unit_test( ( &
       a1%mesh%name     == mesh2%name .and. &
       size( a1%H   ,1) == mesh2%pai_V%n_nih .and. &
@@ -167,7 +167,7 @@ contains
       ), trim( test_name) // '/allocate')
 
     ! Initialise the demo model and test if that worked
-    call b1%initialise( b1%ct_initialise( H0, till_friction_angle_uniform, beta_sq_uniform))
+    call b1%initialise( H0, till_friction_angle_uniform, beta_sq_uniform)
     call unit_test( (&
       minval( b1%H( mesh1%pai_V%i1: mesh1%pai_V%i2)) == H0 .and. &
       minval( b1%beta_sq( mesh1%pai_V%i1: mesh1%pai_V%i2)) == beta_sq_uniform .and. &
@@ -175,14 +175,14 @@ contains
       ), trim( test_name) // '/initialise')
 
     ! Run the demo model and test if that worked
-    call b1%run( b1%ct_run( H_new, dH))
+    call b1%run( H_new, dH)
     call unit_test( (&
       minval( b1%H( mesh1%pai_V%i1: mesh1%pai_V%i2)) == H_new .and. &
       maxval( b1%H( mesh1%pai_V%i1: mesh1%pai_V%i2)) == H_new &
       ), trim( test_name) // '/run')
 
     ! Remap the demo model and test if that worked
-    call b1%remap( b1%ct_remap( mesh2))
+    call b1%remap( mesh2)
     call unit_test( ( &
       b1%mesh%name     == mesh2%name .and. &
       size( b1%H   ,1) == mesh2%pai_V%n_nih .and. &
@@ -256,19 +256,19 @@ contains
       ), trim( test_name) // '/allocate')
 
     ! Initialise the demo model and test if that worked
-    call demo1%initialise( demo1%ct_initialise( H0, till_friction_angle_uniform, beta_sq_uniform))
+    call demo1%initialise( H0, till_friction_angle_uniform, beta_sq_uniform)
     call unit_test( (&
       minval( demo1%H( mesh1%pai_V%i1: mesh1%pai_V%i2)) == H0 &
       ), trim( test_name) // '/initialise')
 
     ! Run the demo model and test if that worked
-    call demo1%run( demo1%ct_run( H_new, dH))
+    call demo1%run( H_new, dH)
     call unit_test( (&
       minval( demo1%H( mesh1%pai_V%i1: mesh1%pai_V%i2)) == H0 + dH &
       ), trim( test_name) // '/run')
 
     ! Remap the demo model and test if that worked
-    call demo1%remap( demo1%ct_remap( mesh2))
+    call demo1%remap( mesh2)
     call unit_test( ( &
       demo1%mesh%name     == mesh2%name .and. &
       size( demo1%H   ,1) == mesh2%pai_V%n_nih .and. &
@@ -342,19 +342,19 @@ contains
       ), trim( test_name) // '/allocate')
 
     ! Initialise the demo model and test if that worked
-    call demo1%initialise( demo1%ct_initialise( H0, till_friction_angle_uniform, beta_sq_uniform))
+    call demo1%initialise( H0, till_friction_angle_uniform, beta_sq_uniform)
     call unit_test( (&
       minval( demo1%H( mesh1%pai_V%i1: mesh1%pai_V%i2)) == H0 &
       ), trim( test_name) // '/initialise')
 
     ! Run the demo model and test if that worked
-    call demo1%run( demo1%ct_run( H_new, dH))
+    call demo1%run( H_new, dH)
     call unit_test( (&
       minval( demo1%H( mesh1%pai_V%i1: mesh1%pai_V%i2)) == H_new &
       ), trim( test_name) // '/run')
 
     ! Remap the demo model and test if that worked
-    call demo1%remap( demo1%ct_remap( mesh2))
+    call demo1%remap( mesh2)
     call unit_test( ( &
       demo1%mesh%name     == mesh2%name .and. &
       size( demo1%H   ,1) == mesh2%pai_V%n_nih .and. &

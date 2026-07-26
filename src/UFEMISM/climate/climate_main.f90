@@ -115,10 +115,10 @@ CONTAINS
       class default
         call crash('choice_climate_model = SMB_snapshot_plus_anomalies only works when choice_SMB_model = snapshot_plus_anomalies')
       class is (type_SMB_model_snp_p_anml)
-        call snapshot_plus_anomalies%run( snapshot_plus_anomalies%ct_run( time, ice, climate, grid))
+        call snapshot_plus_anomalies%run( time, ice, climate, grid)
       end select
     case ('ISMIP7')
-      call climate%ISMIP7%run( climate%ISMIP7%ct_run( time, ice))
+      call climate%ISMIP7%run( ice, time)
       climate%T2m   ( mesh%vi1:mesh%vi2,:) = climate%ISMIP7%T2m   ( mesh%vi1:mesh%vi2,:)
       climate%Precip( mesh%vi1:mesh%vi2,:) = climate%ISMIP7%Precip( mesh%vi1:mesh%vi2,:)
     CASE DEFAULT
@@ -214,7 +214,7 @@ CONTAINS
       ! No need to do anything (initialisation is handled by the SMB model)
     case ('ISMIP7')
       call climate%ISMIP7%allocate( region_name, mesh)
-      call climate%ISMIP7%initialise( climate%ISMIP7%ct_initialise( refgeo_init, refgeo_PD))
+      call climate%ISMIP7%initialise( refgeo_PD, refgeo_init)
     end select
 
     call checksum( mesh%pai_V, climate%T2m   , 'climate%T2m')
@@ -495,7 +495,7 @@ CONTAINS
     ELSEIF (choice_climate_model == 'matrix') THEN
       call remap_climate_matrix_model( mesh_new, climate, region_name, grid, ice, forcing)
     elseif (choice_climate_model == 'ISMIP7') then
-      call climate%ISMIP7%remap( climate%ISMIP7%ct_remap( mesh_new))
+      call climate%ISMIP7%remap( mesh_new)
     ELSE
       CALL crash('unknown choice_climate_model "' // TRIM( choice_climate_model) // '"')
     END IF

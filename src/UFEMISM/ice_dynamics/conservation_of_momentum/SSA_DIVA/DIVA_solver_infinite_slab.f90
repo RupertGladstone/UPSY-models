@@ -81,7 +81,7 @@ contains
     call init_routine( routine_name)
 
     ! if there is no grounded ice, no need (in fact, no way) to solve the DIVA
-    grounded_ice_exists = any( ice%mask_grounded_ice)
+    grounded_ice_exists = any( ice%geom%mask_grounded_ice)
     call MPI_ALLREDUCE( MPI_IN_PLACE, grounded_ice_exists, 1, MPI_logical, MPI_LOR, MPI_COMM_WORLD, ierr)
     if (.not. grounded_ice_exists) then
       DIVA%u_vav_b  = 0._dp
@@ -326,7 +326,7 @@ contains
 
     ! Calculate the product term N = eta * H on the a-grid
     do vi = mesh%vi1, mesh%vi2
-      DIVA%N_a( vi) = DIVA%eta_vav_a( vi) * max( 0.1, ice%Hi( vi))
+      DIVA%N_a( vi) = DIVA%eta_vav_a( vi) * max( 0.1, ice%geom%Hi( vi))
     end do
 
     ! Calculate the product term N and its gradients on the b-grid
@@ -369,13 +369,13 @@ contains
       do k = 1, mesh%nz
         prof( k) = (mesh%zeta( k)    / DIVA%eta_3D_a( vi,k))
       end do
-      DIVA%F1_3D_a( vi,:) = -max( 0.1_dp, ice%Hi( vi)) * integrate_from_zeta_is_one_to_zeta_is_zetap( mesh%zeta, prof)
+      DIVA%F1_3D_a( vi,:) = -max( 0.1_dp, ice%geom%Hi( vi)) * integrate_from_zeta_is_one_to_zeta_is_zetap( mesh%zeta, prof)
 
       ! F2
       do k = 1, mesh%nz
         prof( k) = (mesh%zeta( k)**2 / DIVA%eta_3D_a( vi,k))
       end do
-      DIVA%F2_3D_a( vi,:) = -max( 0.1_dp, ice%Hi( vi)) * integrate_from_zeta_is_one_to_zeta_is_zetap( mesh%zeta, prof)
+      DIVA%F2_3D_a( vi,:) = -max( 0.1_dp, ice%geom%Hi( vi)) * integrate_from_zeta_is_one_to_zeta_is_zetap( mesh%zeta, prof)
 
     end do
 
@@ -412,7 +412,8 @@ contains
     ! This is where the sliding law is called!
     call map_b_a_2D( mesh, DIVA%u_base_b, u_base_a)
     call map_b_a_2D( mesh, DIVA%v_base_b, v_base_a)
-    call calc_basal_friction_coefficient( mesh, ice, bed_roughness, u_base_a, v_base_a)
+    call calc_basal_friction_coefficient( mesh, ice%geom, bed_roughness, u_base_a, v_base_a, &
+      ice%effective_pressure, ice%till_yield_stress, ice%basal_friction_coefficient)
 
     ! Calculate beta_eff on the a-grid
     if (C%choice_sliding_law == 'no_sliding') then
@@ -439,7 +440,7 @@ contains
     if (C%do_GL_subgrid_friction) then
       ! On the b-grid
       do ti = mesh%ti1, mesh%ti2
-        DIVA%beta_eff_b( ti) = DIVA%beta_eff_b( ti) * ice%fraction_gr_b( ti)**C%subgrid_friction_exponent_on_B_grid
+        DIVA%beta_eff_b( ti) = DIVA%beta_eff_b( ti) * ice%geom%fraction_gr_b( ti)**C%subgrid_friction_exponent_on_B_grid
       end do
     end if
 

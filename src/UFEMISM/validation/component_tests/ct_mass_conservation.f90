@@ -17,6 +17,7 @@ module ct_mass_conservation
   use conservation_of_mass_main, only: calc_dHi_dt
   use parameters, only: pi
   use ice_model_memory, only: allocate_ice_model
+  use conservation_of_momentum_main, only: calc_u_perp
 
   implicit none
 
@@ -122,7 +123,7 @@ contains
     call assert( test_mesh_is_self_consistent( mesh), 'mesh is not self-consistent')
 
     ! Run all the mapping tests with different test ice sheets
-    call allocate_ice_model( mesh, ice)
+    call allocate_ice_model( mesh, ice, 'ANT')
 
     allocate( Hi       (mesh%vi1:mesh%vi2), source = 0._dp)
     allocate( u_vav_b  (mesh%ti1:mesh%ti2), source = 0._dp)
@@ -165,6 +166,7 @@ contains
 
     ! Local variables:
     character(len=1024), parameter         :: routine_name = 'run_mass_cons_test_on_mesh_with_function'
+    real(dp), dimension(mesh%vi1:mesh%vi2, mesh%nC_mem) :: u_perp
     real(dp), dimension(mesh%vi1:mesh%vi2) :: Hb, Hs, SL
     real(dp), dimension(mesh%vi1:mesh%vi2) :: SMB
     real(dp), dimension(mesh%vi1:mesh%vi2) :: BMB, LMB, AMB
@@ -193,31 +195,33 @@ contains
     dHi_dt_target   = 0._dp
     dt              = 0.1_dp
 
+    call calc_u_perp( mesh, u_vav_b, v_vav_b, u_perp)
+
     ! Calculate modelled thinning rates using different solvers
     ! =========================================================
 
     ! Explicit
     C%choice_ice_integration_method = 'explicit'
-    call calc_dHi_dt( mesh, ice, Hi, Hb, SL, u_vav_b, v_vav_b, SMB, BMB, LMB, AMB, &
-      fraction_margin, mask_noice, dt, dHi_dt_expl, Hi_tplusdt, divQ, dHi_dt_target)
+    call calc_dHi_dt( mesh, ice%geom, u_perp, SMB, BMB, LMB, AMB, &
+      mask_noice, dt, dHi_dt_expl, Hi_tplusdt, divQ, dHi_dt_target, ice%Qspill)
 
     ! Semi-implicit
     C%choice_ice_integration_method = 'semi-implicit'
     C%dHi_semiimplicit_fs = 0.5_dp
-    call calc_dHi_dt( mesh, ice, Hi, Hb, SL, u_vav_b, v_vav_b, SMB, BMB, LMB, AMB, &
-      fraction_margin, mask_noice, dt, dHi_dt_semiimpl, Hi_tplusdt, divQ, dHi_dt_target)
+    call calc_dHi_dt( mesh, ice%geom, u_perp, SMB, BMB, LMB, AMB, &
+      mask_noice, dt, dHi_dt_semiimpl, Hi_tplusdt, divQ, dHi_dt_target, ice%Qspill)
 
     ! Implicit
     C%choice_ice_integration_method = 'semi-implicit'
     C%dHi_semiimplicit_fs = 1._dp
-    call calc_dHi_dt( mesh, ice, Hi, Hb, SL, u_vav_b, v_vav_b, SMB, BMB, LMB, AMB, &
-      fraction_margin, mask_noice, dt, dHi_dt_impl, Hi_tplusdt, divQ, dHi_dt_target)
+    call calc_dHi_dt( mesh, ice%geom, u_perp, SMB, BMB, LMB, AMB, &
+      mask_noice, dt, dHi_dt_impl, Hi_tplusdt, divQ, dHi_dt_target, ice%Qspill)
 
     ! Over-implicit
     C%choice_ice_integration_method = 'semi-implicit'
     C%dHi_semiimplicit_fs = 1.5_dp
-    call calc_dHi_dt( mesh, ice, Hi, Hb, SL, u_vav_b, v_vav_b, SMB, BMB, LMB, AMB, &
-      fraction_margin, mask_noice, dt, dHi_dt_overimpl, Hi_tplusdt, divQ, dHi_dt_target)
+    call calc_dHi_dt( mesh, ice%geom, u_perp, SMB, BMB, LMB, AMB, &
+      mask_noice, dt, dHi_dt_overimpl, Hi_tplusdt, divQ, dHi_dt_target, ice%Qspill)
 
     ! Write results to output
     call write_mass_cons_test_results_to_file( &

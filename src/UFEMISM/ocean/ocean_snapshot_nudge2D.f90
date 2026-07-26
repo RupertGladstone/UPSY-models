@@ -119,8 +119,8 @@ contains
     ! is often wrong (because of the difficulty of remapping a discontinuous
     ! field), so instead use the mean of the neighbouring non-front shelf
     ! vertices.
-    call gather_to_all( ice%mask_floating_ice, mask_floating_ice_tot)
-    call gather_to_all( ice%mask_cf_fl       , mask_cf_fl_tot)
+    call gather_to_all( ice%geom%mask_floating_ice, mask_floating_ice_tot)
+    call gather_to_all( ice%geom%mask_cf_fl       , mask_cf_fl_tot)
     call gather_to_all( Hi_target_corr       , Hi_target_tot)
 
     do vi = mesh%vi1, mesh% vi2
@@ -173,11 +173,11 @@ contains
 
       ! Only apply nudging to fully floating shelf vertices,
       ! skipping the grounding line and calving front.
-      if (ice%fraction_gr( vi) < 0.01_dp .and. ice%Hi( vi) > 0.1_dp .and. .not. ice%mask_margin( vi)) then
+      if (ice%geom%fraction_gr( vi) < 0.01_dp .and. ice%geom%Hi( vi) > 0.1_dp .and. .not. ice%geom%mask_margin( vi)) then
 
         mask_extrapolation( vi) = 2
 
-        deltaH = ice%Hi( vi) - Hi_target_corr( vi)
+        deltaH = ice%geom%Hi( vi) - Hi_target_corr( vi)
         dHdt   = ice%dHi_dt( vi)
 
         dTdt( vi) = c_H * deltaH + c_dHdt * dHdt
@@ -234,8 +234,7 @@ contains
 
     ! Map deltaT to reference grid
     call map_from_mesh_vertices_to_xy_grid_2D( mesh, snapshot_nudge2D%grid_ref, trim( C%output_dir), &
-      snapshot_nudge2D%deltaT_nudge, snapshot_nudge2D%deltaT_nudge_grid, '2nd_order_conservative', &
-      d_mesh_is_hybrid = .false., d_grid_is_hybrid = .false.)
+      snapshot_nudge2D%deltaT_nudge, snapshot_nudge2D%deltaT_nudge_grid, '2nd_order_conservative')
 
     ! Remove routine from call stack
     call finalise_routine( routine_name)

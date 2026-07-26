@@ -44,9 +44,9 @@ contains
     allocate( dHs_dy_b( mesh%ti1:mesh%ti2))
 
     ! Calculate Hi, dHs/dx, and dHs/dy on the b-grid
-    call map_a_b_2D( mesh, ice%Hi, Hi_b    )
-    call ddx_a_b_2D( mesh, ice%Hs, dHs_dx_b)
-    call ddy_a_b_2D( mesh, ice%Hs, dHs_dy_b)
+    call map_a_b_2D( mesh, ice%geom%Hi, Hi_b    )
+    call ddx_a_b_2D( mesh, ice%geom%Hs, dHs_dx_b)
+    call ddy_a_b_2D( mesh, ice%geom%Hs, dHs_dy_b)
 
     ! Calculate the driving stress
     do ti = mesh%ti1, mesh%ti2

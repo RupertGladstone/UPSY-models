@@ -117,7 +117,7 @@ contains
     call init_routine( routine_name)
 
     ! if there is no grounded ice, or no sliding, no need to solve the SSA
-    grounded_ice_exists = any( ice%mask_grounded_ice)
+    grounded_ice_exists = any( ice%geom%mask_grounded_ice)
     call MPI_ALLREDUCE( MPI_IN_PLACE, grounded_ice_exists, 1, MPI_logical, MPI_LOR, MPI_COMM_WORLD, ierr)
     if (.not. grounded_ice_exists .or. C%choice_sliding_law == 'no_sliding') then
       SSA%u_b = 0._dp
@@ -379,7 +379,7 @@ contains
     SSA%eta_a = min( max( SSA%eta_a, C%visc_eff_min), eta_max)
 
     ! Calculate the product term N = eta * H on the a-grid
-    SSA%N_a = SSA%eta_a * max( 0.1_dp, ice%Hi)
+    SSA%N_a = SSA%eta_a * max( 0.1_dp, ice%geom%Hi)
 
     ! Calculate the product term N and its gradients on the b-grid
     call map_a_b_2D( mesh, SSA%N_a, SSA%N_b    )
@@ -415,7 +415,8 @@ contains
     ! This is where the sliding law is called!
     call map_b_a_2D( mesh, SSA%u_b, u_a)
     call map_b_a_2D( mesh, SSA%v_b, v_a)
-    call calc_basal_friction_coefficient( mesh, ice, bed_roughness, u_a, v_a)
+    call calc_basal_friction_coefficient( mesh, ice%geom, bed_roughness, u_a, v_a, &
+      ice%effective_pressure, ice%till_yield_stress, ice%basal_friction_coefficient)
 
     ! Map the basal friction coefficient to the b-grid
     call map_a_b_2D( mesh, ice%basal_friction_coefficient, SSA%basal_friction_coefficient_b)
@@ -423,7 +424,7 @@ contains
     ! Apply the sub-grid grounded fraction, and limit the friction coefficient to improve stability
     if (C%do_GL_subgrid_friction) then
       do ti = mesh%ti1, mesh%ti2
-        SSA%basal_friction_coefficient_b( ti) = SSA%basal_friction_coefficient_b( ti) * ice%fraction_gr_b( ti)**C%subgrid_friction_exponent_on_B_grid
+        SSA%basal_friction_coefficient_b( ti) = SSA%basal_friction_coefficient_b( ti) * ice%geom%fraction_gr_b( ti)**C%subgrid_friction_exponent_on_B_grid
       end do
     end if
 

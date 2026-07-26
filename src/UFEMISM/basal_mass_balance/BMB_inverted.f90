@@ -46,8 +46,8 @@ contains
     ! is often wrong (because of the difficulty of remapping a discontinuous
     ! field), so instead use the mean of the neighbouring non-front shelf
     ! vertices.
-    call gather_to_all( ice%mask_floating_ice     , mask_floating_ice_tot)
-    call gather_to_all( ice%mask_cf_fl            , mask_cf_fl_tot)
+    call gather_to_all( ice%geom%mask_floating_ice     , mask_floating_ice_tot)
+    call gather_to_all( ice%geom%mask_cf_fl            , mask_cf_fl_tot)
     call gather_to_all( BMB_inv%target_geometry%Hi, Hi_target_tot)
 
     do vi = mesh%vi1, mesh% vi2
@@ -65,7 +65,7 @@ contains
           Hi_target_tot( vi) = wH_sum / w_sum
         else
           ! No available surrounding shelf values, assume ice thickness here is fine
-          Hi_target_tot( vi) = ice%Hi( vi)
+          Hi_target_tot( vi) = ice%geom%Hi( vi)
         end if
       end if
     end do
@@ -82,9 +82,9 @@ contains
         ! or refreezing to shelf vertices when the grounding line temporarily retreats. However,
         ! this happens in pseudo-time, and will stop once the geometry converges to the target)
 
-        if (BMB_inv%target_mask_shelf( vi) .or. ice%mask_floating_ice( vi)) then
+        if (BMB_inv%target_mask_shelf( vi) .or. ice%geom%mask_floating_ice( vi)) then
 
-          deltaH = ice%Hi( vi) - Hi_target_tot( vi)
+          deltaH = ice%geom%Hi( vi) - Hi_target_tot( vi)
           dHdt   = ice%dHi_dt( vi)
 
           dBMBdt = c_H * deltaH + c_dHdt * dHdt

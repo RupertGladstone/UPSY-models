@@ -7,13 +7,13 @@ module ice_thickness_safeties
   use parameters, only: ice_density, seawater_density
   use mesh_types, only: type_mesh
   use ice_model_types, only: type_ice_model
+  use ice_geometry_model_data, only: atype_ice_geometry_model_data
   use reference_geometry_types, only: type_reference_geometry
-  use subgrid_ice_margin, only: calc_effective_thickness
   use ice_geometry_basics, only: is_floating
   use mpi_distributed_memory, only: gather_to_all
   use mpi_basic, only: par, sync
-  use masks_mod, only: determine_masks
   use mpi_f08, only: MPI_ALLREDUCE, MPI_IN_PLACE, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_MIN, MPI_SUM, MPI_COMM_WORLD
+  use ice_geometry_model_basic, only: type_ice_geometry_model
 
   implicit none
 
@@ -42,26 +42,33 @@ contains
     real(dp)                               :: decay_start, decay_end
     real(dp)                               :: fixiness, limitness, fix_H_applied, limit_H_applied
     real(dp), dimension(mesh%vi1:mesh%vi2) :: modiness_up, modiness_down
-    real(dp), dimension(mesh%vi1:mesh%vi2) :: Hi_save, Hi_eff_new, fraction_margin_new
+    real(dp), dimension(mesh%vi1:mesh%vi2) :: Hi_save
     real(dp)                               :: floating_area, calving_area, mass_lost
+    type(type_ice_geometry_model)          :: geom_new   ! Not the most beautiful solution, but the best that can be done for now...
 
     ! Add routine to path
     call init_routine( routine_name)
+
+    ! DENK DROM
+    call geom_new%allocate( ice%geom%region_name(), mesh)
+    geom_new%Hi = Hi_new
+    geom_new%Hb = ice%geom%Hb
+    geom_new%SL = ice%geom%SL
 
     ! Save predicted ice thickness for future reference
     Hi_save = Hi_new
 
     ! Calculate would-be effective thickness
-    call calc_effective_thickness( mesh, Hi_new, Hb, SL, Hi_eff_new, fraction_margin_new)
-    
+    call geom_new%calc_effective_thickness()
+
     ! == Mask conservation
     ! ====================
 
     ! if desired, don't let grounded ice cross the floatation threshold
     if (C%do_protect_grounded_mask .and. time <= C%protect_grounded_mask_t_end) then
       do vi = mesh%vi1, mesh%vi2
-        if (ice%mask_grounded_ice( vi)) then
-          Hi_new( vi) = max( Hi_new( vi), (ice%SL( vi) - ice%Hb( vi)) * seawater_density/ice_density + .1_dp)
+        if (ice%geom%mask_grounded_ice( vi)) then
+          Hi_new( vi) = max( Hi_new( vi), (ice%geom%SL( vi) - ice%geom%Hb( vi)) * seawater_density/ice_density + .1_dp)
         end if
       end do
     end if
@@ -71,7 +78,7 @@ contains
 
     ! if so specified, remove very thin ice
     do vi = mesh%vi1, mesh%vi2
-      if (Hi_eff_new( vi) < C%Hi_min) then
+      if (geom_new%Hi_eff( vi) < C%Hi_min) then
         Hi_new( vi) = 0._dp
       end if
     end do
@@ -79,7 +86,7 @@ contains
     ! if so specified, remove thin floating ice
     if (C%choice_calving_law == 'threshold_thickness') then
       do vi = mesh%vi1, mesh%vi2
-        if (is_floating( Hi_eff_new( vi), ice%Hb( vi), ice%SL( vi)) .and. Hi_eff_new( vi) < C%calving_threshold_thickness_shelf) then
+        if (is_floating( geom_new%Hi_eff( vi), ice%geom%Hb( vi), ice%geom%SL( vi)) .and. geom_new%Hi_eff( vi) < C%calving_threshold_thickness_shelf) then
           Hi_new( vi) = 0._dp
         end if
       end do
@@ -97,7 +104,7 @@ contains
     ! if so specified, remove all floating ice
     if (C%do_remove_shelves) then
       do vi = mesh%vi1, mesh%vi2
-        if (is_floating( Hi_eff_new( vi), ice%Hb( vi), ice%SL( vi))) then
+        if (is_floating( geom_new%Hi_eff( vi), ice%geom%Hb( vi), ice%geom%SL( vi))) then
           Hi_new( vi) = 0._dp
         end if
       end do
@@ -213,7 +220,7 @@ contains
 
     case ('no_thick_inland')
       do vi = mesh%vi1, mesh%vi2
-        if (ice%mask_grounded_ice( vi) .and. .not. ice%mask_gl_gr( vi)) then
+        if (ice%geom%mask_grounded_ice( vi) .and. .not. ice%geom%mask_gl_gr( vi)) then
           modiness_up( vi) = 1._dp
         end if
       end do
@@ -221,7 +228,7 @@ contains
 
     case ('no_thin_inland')
       do vi = mesh%vi1, mesh%vi2
-        if (ice%mask_grounded_ice( vi) .and. .not. ice%mask_gl_gr( vi)) then
+        if (ice%geom%mask_grounded_ice( vi) .and. .not. ice%geom%mask_gl_gr( vi)) then
           modiness_down( vi) = 1._dp
         end if
       end do
@@ -242,27 +249,27 @@ contains
       fix_H_applied   = 0._dp
       limit_H_applied = 0._dp
 
-      if (    ice%mask_gl_gr( vi)) then
+      if (    ice%geom%mask_gl_gr( vi)) then
         fix_H_applied   = C%fixiness_H_gl_gr * fixiness
         limit_H_applied = C%limitness_H_gl_gr * limitness
 
-      elseif (ice%mask_gl_fl( vi)) then
+      elseif (ice%geom%mask_gl_fl( vi)) then
         fix_H_applied   = C%fixiness_H_gl_fl * fixiness
         limit_H_applied = C%limitness_H_gl_fl * limitness
 
-      elseif (ice%mask_grounded_ice( vi)) then
+      elseif (ice%geom%mask_grounded_ice( vi)) then
         fix_H_applied   = C%fixiness_H_grounded * fixiness
         limit_H_applied = C%limitness_H_grounded * limitness
 
-      elseif (ice%mask_floating_ice( vi)) then
+      elseif (ice%geom%mask_floating_ice( vi)) then
         fix_H_applied   = C%fixiness_H_floating * fixiness
         limit_H_applied = C%limitness_H_floating * limitness
 
-      elseif (ice%mask_icefree_land( vi)) then
+      elseif (ice%geom%mask_icefree_land( vi)) then
         if (C%fixiness_H_freeland .and. fixiness > 0._dp) fix_H_applied = 1._dp
         limit_H_applied = C%limitness_H_grounded * limitness
 
-      elseif (ice%mask_icefree_ocean( vi)) then
+      elseif (ice%geom%mask_icefree_ocean( vi)) then
         if (C%fixiness_H_freeocean .and. fixiness > 0._dp) fix_H_applied = 1._dp
         limit_H_applied = C%limitness_H_floating * limitness
       else
@@ -287,13 +294,15 @@ contains
 
   end subroutine alter_ice_thickness
 
-  subroutine calc_and_apply_spill_over_flux( mesh, ice, Hi_new, dt)
+  subroutine calc_and_apply_spill_over_flux( mesh, geom, u_perp, Qspill, Hi_new, dt)
 
     ! In/output variables:
-    type(type_mesh),                        intent(in   ) :: mesh
-    type(type_ice_model),                   intent(inout) :: ice
-    real(dp), dimension(mesh%vi1:mesh%vi2), intent(inout) :: Hi_new
-    real(dp),                               intent(in   ) :: dt
+    type(type_mesh),                                     intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data),                intent(in   ) :: geom
+    real(dp), dimension(mesh%vi1:mesh%vi2, mesh%nC_mem), intent(in   ) :: u_perp                ! [m yr^-1] Vertically-averaged ice velocity components perpendicular to Voronoi cell boundaries
+    real(dp), dimension(mesh%vi1:mesh%vi2),              intent(  out) :: Qspill
+    real(dp), dimension(mesh%vi1:mesh%vi2),              intent(inout) :: Hi_new
+    real(dp),                                            intent(in   ) :: dt
 
     ! Local variables:
     character(len=1024), parameter                       :: routine_name = 'calc_and_apply_spill_over_flux'
@@ -310,35 +319,35 @@ contains
     real(dp), dimension(mesh%nV)                         :: Hi_new_tot, Hb_tot
 
     ! Initialise
-    ice%Qspill = 0._dp
-    Q_src      = 0._dp
-    Q_dst      = 0._dp
-    relweight  = 0._dp
+    Qspill   ( mesh%vi1:mesh%vi2  ) = 0._dp
+    Q_src    ( mesh%vi1:mesh%vi2  ) = 0._dp
+    Q_dst    ( mesh%vi1:mesh%vi2  ) = 0._dp
+    relweight( mesh%vi1:mesh%vi2,:) = 0._dp
 
-    call gather_to_all( ice%mask_icefree_ocean, mask_icefree_ocean_tot)
+    call gather_to_all( geom%mask_icefree_ocean, mask_icefree_ocean_tot)
     call gather_to_all( Hi_new, Hi_new_tot)
-    call gather_to_all( ice%Hb, Hb_tot)
+    call gather_to_all( geom%Hb, Hb_tot)
 
     ! Compute spill flux source
     do vi = mesh%vi1, mesh%vi2
-  
+
       ! Determine upstream ice thickness
-      if (ice%mask_cf_fl( vi) .or. ice%mask_cf_gr( vi)) then
+      if (geom%mask_cf_fl( vi) .or. geom%mask_cf_gr( vi)) then
 
         ! Find connection with the strongest inflow into this cell
         cm = 0
         u_perp_min = huge( u_perp_min)
         do ci = 1, mesh%nC( vi)
-          if (ice%u_perp( vi,ci) < u_perp_min) then
-            u_perp_min = ice%u_perp( vi,ci)
+          if (u_perp( vi,ci) < u_perp_min) then
+            u_perp_min = u_perp( vi,ci)
             cm = ci
           end if
         end do
 
         ! If there is no inflow at all, for example during initialisation,
         ! use effective thickness
-        if (ice%u_perp( vi, cm) >= 0._dp) then
-          Hi_ups = ice%Hi_eff( vi)
+        if (u_perp( vi, cm) >= 0._dp) then
+          Hi_ups = geom%Hi_eff( vi)
         end if
 
         ! Find vertex index of strongest inflow cell
@@ -353,28 +362,28 @@ contains
       else
 
         ! Default: use effective ice thickness
-        Hi_ups = ice%Hi_eff( vi)
+        Hi_ups = geom%Hi_eff( vi)
 
       end if
 
       ! Only compute spill-over when ice thickness exceeds effective ice thickness
-      if ((ice%mask_cf_gr( vi) .or. ice%mask_cf_fl( vi)) .and. Hi_new( vi) > Hi_ups) then
+      if ((geom%mask_cf_gr( vi) .or. geom%mask_cf_fl( vi)) .and. Hi_new( vi) > Hi_ups) then
 
         ! Determine source flux of spill-over ice in m^3/yr
         Q_src( vi) = - (Hi_new( vi) - Hi_ups) * mesh%A( vi) / dt
 
         weight = 0._dp
-  
+
         ! Determine weights of surrounding ocean cells
         do ci = 1, mesh%nC( vi)
           vj = mesh%C( vi, ci)
-    
+
           if (mask_icefree_ocean_tot( vj)) then
             ! Define weight by outflow perpendicular velocity into ocean cells.
             ! Add small value to avoid division by 0 if no outflow velocity enters
             ! any ocean cell. In that case, weights will be equally distributed
             ! over all neighbouring ocean cells.
-            weight( ci) = max(0._dp, ice%u_perp( vi, ci)) + w_eps
+            weight( ci) = max(0._dp, u_perp( vi, ci)) + w_eps
           end if
         end do
 
@@ -405,18 +414,18 @@ contains
         do ci = 1, mesh%nC( vi)
           !Neighbouring cell which potentially has nonzero Q_src
           vj = mesh%C( vi, ci)
-  
+
           ! Connections of neighbouring cell
           do cj = 1, mesh%nC( vj)
-  
+
             if (mesh%C( vj, cj) == vi) then
             ! Yes, this connection is a match, receive fraction of Q_src
               if (Q_src_tot( vj) < -1.e-2_dp .and. relweight_tot( vj, cj) > 1.e-6_dp) then
                 Q_dst( vi) = Q_dst( vi) - Q_src_tot( vj) * relweight_tot( vj, cj)
-              end if  
+              end if
 
             end if
-  
+
           end do
 
       end do
@@ -427,10 +436,10 @@ contains
     do vi = mesh%vi1, mesh%vi2
 
       ! Combine source and destination and convert to thickness rate in m/yr
-      ice%Qspill( vi) = (Q_src( vi) + Q_dst( vi)) / mesh%A( vi)
+      Qspill( vi) = (Q_src( vi) + Q_dst( vi)) / mesh%A( vi)
 
       ! Update ice thickness
-      Hi_new( vi) = Hi_new( vi) + ice%Qspill( vi) * dt
+      Hi_new( vi) = Hi_new( vi) + Qspill( vi) * dt
 
     end do
 

@@ -80,7 +80,7 @@ contains
     call init_routine( routine_name)
 
     ! if there is no grounded ice, no need (in fact, no way) to solve the DIVA
-    grounded_ice_exists = any( ice%mask_grounded_ice)
+    grounded_ice_exists = any( ice%geom%mask_grounded_ice)
     call MPI_ALLREDUCE( MPI_IN_PLACE, grounded_ice_exists, 1, MPI_logical, MPI_LOR, MPI_COMM_WORLD, ierr)
     if (.not. grounded_ice_exists) then
       DIVA%u_vav_b  = 0._dp
@@ -447,10 +447,10 @@ contains
     call init_routine( routine_name)
 
     ! Ice model forcing data
-    call map_mesh_vertices_to_graph ( mesh, ice%Hi                           , DIVA%DIVA_graphs%graphs%graph_a, DIVA%DIVA_graphs%Hi_a                        )
-    call map_mesh_vertices_to_graph ( mesh, ice%Hs                           , DIVA%DIVA_graphs%graphs%graph_a, DIVA%DIVA_graphs%Hs_a                        )
-    call map_mesh_vertices_to_graph ( mesh, ice%Ho                           , DIVA%DIVA_graphs%graphs%graph_a, DIVA%DIVA_graphs%Ho_a                        )
-    call map_mesh_triangles_to_graph( mesh, ice%fraction_gr_b                , DIVA%DIVA_graphs%graphs%graph_b, DIVA%DIVA_graphs%fraction_gr_b               )
+    call map_mesh_vertices_to_graph ( mesh, ice%geom%Hi                           , DIVA%DIVA_graphs%graphs%graph_a, DIVA%DIVA_graphs%Hi_a                        )
+    call map_mesh_vertices_to_graph ( mesh, ice%geom%Hs                           , DIVA%DIVA_graphs%graphs%graph_a, DIVA%DIVA_graphs%Hs_a                        )
+    call map_mesh_vertices_to_graph ( mesh, ice%geom%Ho                           , DIVA%DIVA_graphs%graphs%graph_a, DIVA%DIVA_graphs%Ho_a                        )
+    call map_mesh_triangles_to_graph( mesh, ice%geom%fraction_gr_b                , DIVA%DIVA_graphs%graphs%graph_b, DIVA%DIVA_graphs%fraction_gr_b               )
 
     ! Solution
     call map_mesh_triangles_to_graph( mesh, DIVA%u_vav_b                     , DIVA%DIVA_graphs%graphs%graph_b, DIVA%DIVA_graphs%u_vav_b                     )
@@ -577,19 +577,16 @@ contains
     ! Calculate ice thickness and surface slopes on the b-graph
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_map_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%Hi_a, DIVA%graphs%graph_b%pai, Hi_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddx_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%Hs_a, DIVA%graphs%graph_b%pai, dHs_dx_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddy_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%Hs_a, DIVA%graphs%graph_b%pai, dHs_dy_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
@@ -642,13 +639,11 @@ contains
     ! Calculate ice thickness and adjacent ocean column height on the b-graph
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_map_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%Hi_a, DIVA%graphs%graph_b%pai, Hi_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_map_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%Ho_a, DIVA%graphs%graph_b%pai, Ho_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
@@ -696,49 +691,41 @@ contains
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddx_b_a, &
       DIVA%graphs%graph_b%pai, DIVA%u_vav_b, DIVA%graphs%graph_a%pai, DIVA%du_dx_a, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_a%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddy_b_a, &
       DIVA%graphs%graph_b%pai, DIVA%u_vav_b, DIVA%graphs%graph_a%pai, DIVA%du_dy_a, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_a%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddx_b_a, &
       DIVA%graphs%graph_b%pai, DIVA%v_vav_b, DIVA%graphs%graph_a%pai, DIVA%dv_dx_a, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_a%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddy_b_a, &
       DIVA%graphs%graph_b%pai, DIVA%v_vav_b, DIVA%graphs%graph_a%pai, DIVA%dv_dy_a, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_a%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddx_b_b, &
       DIVA%graphs%graph_b%pai, DIVA%u_vav_b, DIVA%graphs%graph_b%pai, DIVA%du_dx_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddy_b_b, &
       DIVA%graphs%graph_b%pai, DIVA%u_vav_b, DIVA%graphs%graph_b%pai, DIVA%du_dy_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddx_b_b, &
       DIVA%graphs%graph_b%pai, DIVA%v_vav_b, DIVA%graphs%graph_b%pai, DIVA%dv_dx_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddy_b_b, &
       DIVA%graphs%graph_b%pai, DIVA%v_vav_b, DIVA%graphs%graph_b%pai, DIVA%dv_dy_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
@@ -794,13 +781,11 @@ contains
 
     call multiply_CSR_matrix_with_vector_2D_wrapper( DIVA%graphs%M_map_b_a, &
       DIVA%graphs%graph_b%pai, DIVA%du_dz_3D_b, DIVA%graphs%graph_a%pai, DIVA%du_dz_3D_a, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_gk_nih, &
       buffer_yy_nih = DIVA%graphs%graph_a%buffer2_gk_nih)
 
     call multiply_CSR_matrix_with_vector_2D_wrapper( DIVA%graphs%M_map_b_a, &
       DIVA%graphs%graph_b%pai, DIVA%dv_dz_3D_b, DIVA%graphs%graph_a%pai, DIVA%dv_dz_3D_a, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_gk_nih, &
       buffer_yy_nih = DIVA%graphs%graph_a%buffer2_gk_nih)
 
@@ -908,7 +893,6 @@ contains
       ! Map flow factor from the a-graph to the b-graph
       call multiply_CSR_matrix_with_vector_2D_wrapper( DIVA%graphs%M_map_a_b, &
         DIVA%graphs%graph_a%pai, DIVA%A_flow_3D_a, DIVA%graphs%graph_b%pai, A_flow_3D_b, &
-        xx_is_hybrid = .true., yy_is_hybrid = .true., &
         buffer_xx_nih = DIVA%graphs%graph_a%buffer1_gk_nih, &
         buffer_yy_nih = DIVA%graphs%graph_b%buffer2_gk_nih)
 
@@ -938,7 +922,6 @@ contains
     ! Map ice thickness from the a-graph to the b-graph
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_map_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%Hi_a, DIVA%graphs%graph_b%pai, Hi_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
@@ -960,13 +943,11 @@ contains
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddx_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%N_a, DIVA%graphs%graph_b%pai, DIVA%dN_dx_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_ddy_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%N_a, DIVA%graphs%graph_b%pai, DIVA%dN_dy_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
@@ -1027,13 +1008,11 @@ contains
 
     call multiply_CSR_matrix_with_vector_2D_wrapper( DIVA%graphs%M_map_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%F1_3D_a, DIVA%graphs%graph_b%pai, DIVA%F1_3D_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_gk_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_gk_nih)
 
     call multiply_CSR_matrix_with_vector_2D_wrapper( DIVA%graphs%M_map_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%F2_3D_a, DIVA%graphs%graph_b%pai, DIVA%F2_3D_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_gk_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_gk_nih)
 
@@ -1086,14 +1065,12 @@ contains
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_map_b_a, &
       DIVA%graphs%graph_b%pai, DIVA%u_base_b, &
       DIVA%graphs%graph_a%pai, u_base_a, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_a%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_map_b_a, &
       DIVA%graphs%graph_b%pai, DIVA%v_base_b, &
       DIVA%graphs%graph_a%pai, v_base_a, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_b%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_a%buffer2_g_nih)
 
@@ -1101,7 +1078,8 @@ contains
     ! This is where the sliding law is called!
     call map_graph_to_mesh_vertices( DIVA%graphs%graph_a, u_base_a, mesh, u_base_a_m)
     call map_graph_to_mesh_vertices( DIVA%graphs%graph_a, v_base_a, mesh, v_base_a_m)
-    call calc_basal_friction_coefficient( mesh, ice, bed_roughness, u_base_a_m, v_base_a_m)
+    call calc_basal_friction_coefficient( mesh, ice%geom, bed_roughness, u_base_a_m, v_base_a_m, &
+      ice%effective_pressure, ice%till_yield_stress, ice%basal_friction_coefficient)
     call map_mesh_vertices_to_graph( mesh, ice%basal_friction_coefficient, DIVA%graphs%graph_a, DIVA%basal_friction_coefficient_a)
 
     ! DENK DROM
@@ -1137,13 +1115,11 @@ contains
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_map_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%basal_friction_coefficient_a, &
       DIVA%graphs%graph_b%pai, DIVA%basal_friction_coefficient_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 
     call multiply_CSR_matrix_with_vector_1D_wrapper( DIVA%graphs%M_map_a_b, &
       DIVA%graphs%graph_a%pai, DIVA%beta_eff_a, DIVA%graphs%graph_b%pai, DIVA%beta_eff_b, &
-      xx_is_hybrid = .true., yy_is_hybrid = .true., &
       buffer_xx_nih = DIVA%graphs%graph_a%buffer1_g_nih, &
       buffer_yy_nih = DIVA%graphs%graph_b%buffer2_g_nih)
 

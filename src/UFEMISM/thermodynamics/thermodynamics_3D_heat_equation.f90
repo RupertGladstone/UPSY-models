@@ -134,7 +134,7 @@ CONTAINS
     DO vi = mesh%vi1, mesh%vi2
 
       ! For very thin ice, just let the profile equal the surface temperature
-      IF (ice%Hi_eff( vi) < C%Hi_min_thermo) THEN
+      IF (ice%geom%Hi_eff( vi) < C%Hi_min_thermo) THEN
         is_unstable( vi) = 0
         Ti_tplusdt( vi,:) = T_surf_annual( vi)
         CYCLE
@@ -170,7 +170,7 @@ CONTAINS
         DO it_it_dt = 1, 2**(it_dt-1)
 
           ! Solve the heat equation in the vertical column
-          IF (ice%mask_gl_gr( vi)) THEN
+          IF (ice%geom%mask_gl_gr( vi)) THEN
             ! Grounding line: use some combination of the solutions using Q_base_grnd and T_base_float as boundary conditions
 
             ! Fully grounded solution (default: immediately assigned to final solution)
@@ -196,7 +196,7 @@ CONTAINS
                   ! Use solution that assumes a fully grounded ice column (already assigned)
                 CASE ('subgrid')
                   ! Interpolate grounded and floating solutions based on grounded fraction
-                  icecol_Ti_tplusdt = ice%fraction_gr( vi) * icecol_Ti_tplusdt + (1._dp - ice%fraction_gr( vi)) * icecol_Ti_tplusdt_gl_fl
+                  icecol_Ti_tplusdt = ice%geom%fraction_gr( vi) * icecol_Ti_tplusdt + (1._dp - ice%geom%fraction_gr( vi)) * icecol_Ti_tplusdt_gl_fl
                 CASE ('pmp')
                   ! Use solution that assumes ice base is at pressure melting point
                   icecol_Ti_tplusdt = icecol_Ti_tplusdt_gl_fl
@@ -204,7 +204,7 @@ CONTAINS
                   CALL crash('unknown choice_GL_temperature_BC "' // TRIM( C%choice_GL_temperature_BC) // '"!')
               END SELECT
 
-          ELSEIF (ice%mask_grounded_ice( vi)) THEN
+          ELSEIF (ice%geom%mask_grounded_ice( vi)) THEN
             ! Grounded ice: use Q_base_grnd as boundary condition
 
             CALL solve_1D_heat_equation( mesh, icecol_Ti, icecol_u, icecol_v, icecol_w, &
@@ -212,7 +212,7 @@ CONTAINS
               icecol_Ti_pmp, icecol_Ki, icecol_Cpi, icecol_dzeta_dx, icecol_dzeta_dy, icecol_dzeta_dz, icecol_dzeta_dt, &
               icecol_Phi, dt_applied, icecol_Ti_tplusdt, Q_base_grnd = Q_base_grnd( vi))
 
-          ELSEIF (ice%mask_floating_ice( vi)) THEN
+          ELSEIF (ice%geom%mask_floating_ice( vi)) THEN
             ! Floating ice: use T_base_float as boundary condition
 
             CALL solve_1D_heat_equation( mesh, icecol_Ti, icecol_u, icecol_v, icecol_w, &
@@ -268,9 +268,9 @@ CONTAINS
       ! An unacceptably large number of grid cells was unstable; throw an error.
 
       ! CALL save_variable_as_netcdf_dp_1D(  C%output_dir, ice%Hi                  , 'Hi'                  )
-      ! CALL save_variable_as_netcdf_dp_1D(  C%output_dir, ice%Hi_eff              , 'Hi_eff'              )
-      ! CALL save_variable_as_netcdf_dp_1D(  C%output_dir, ice%Hb                  , 'Hb'                  )
-      ! CALL save_variable_as_netcdf_dp_1D(  C%output_dir, ice%SL                  , 'SL'                  )
+      ! CALL save_variable_as_netcdf_dp_1D(  C%output_dir, ice%geom%Hi_eff              , 'Hi_eff'              )
+      ! CALL save_variable_as_netcdf_dp_1D(  C%output_dir, ice%geom%Hb                  , 'Hb'                  )
+      ! CALL save_variable_as_netcdf_dp_1D(  C%output_dir, ice%geom%SL                  , 'SL'                  )
       ! CALL save_variable_as_netcdf_dp_2D(  C%output_dir, ice%dzeta_dx_ak         , 'dzeta_dx_ak'         )
       ! CALL save_variable_as_netcdf_dp_2D(  C%output_dir, ice%dzeta_dy_ak         , 'dzeta_dy_ak'         )
       ! CALL save_variable_as_netcdf_dp_2D(  C%output_dir, ice%dzeta_dz_ak         , 'dzeta_dz_ak'         )

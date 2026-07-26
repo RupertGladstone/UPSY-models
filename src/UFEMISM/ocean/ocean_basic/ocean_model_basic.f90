@@ -6,8 +6,6 @@ module ocean_model_basic
   use mesh_types, only: type_mesh
   use Arakawa_grid_mod, only: Arakawa_grid
   use fields_main, only: third_dimension
-  use models_basic, only: atype_model, &
-    atype_model_context_initialise, atype_model_context_run, atype_model_context_remap
   use ocean_model_data, only: atype_ocean_model_data
   use mpi_f08, only: MPI_WIN
   use ice_model_types, only: type_ice_model
@@ -18,9 +16,7 @@ module ocean_model_basic
 
   private
 
-  public :: atype_ocean_model, &
-    type_ocean_model_context_initialise, type_ocean_model_context_run, &
-    type_ocean_model_context_remap
+  public :: atype_ocean_model
 
   type, abstract, extends(atype_ocean_model_data) :: atype_ocean_model
     !< Stuff that is common to all ocean models
@@ -32,53 +28,33 @@ module ocean_model_basic
 
     contains
 
-      ! These routines all consist of two parts: a 'common' part that is executed for
-      ! all models inheriting from atype_ocean_model, and a 'specific' part that is
-      ! only executed for each specific model class. The specific parts are defined
-      ! in the deferred procedures 'allocate_ocean_model', 'initialise_ocean_model', etc.
+      ! Procedures for model memory management and operation
+      procedure, public :: allocate   => ocean_model_allocate
+      procedure, public :: deallocate => ocean_model_deallocate
+      procedure, public :: initialise => ocean_model_initialise
+      procedure, public :: run        => ocean_model_run
+      procedure, public :: remap      => ocean_model_remap
 
-      procedure, public :: allocate_ocean_model
-      procedure, public :: deallocate_ocean_model
-      procedure, public :: initialise_model => initialise_model_abs
-      procedure, public :: run_model        => run_model_abs
-      procedure, public :: remap_model      => remap_model_abs
+      ! Deferred procedures that must be overridden by each individual demo model implementation
+      procedure(ocean_model_allocate_ifc),   deferred :: allocate_ocean_model
+      procedure(ocean_model_deallocate_ifc), deferred :: deallocate_ocean_model
+      procedure(ocean_model_initialise_ifc), deferred :: initialise_ocean_model
+      procedure(ocean_model_run_ifc),        deferred :: run_ocean_model
+      procedure(ocean_model_remap_ifc),      deferred :: remap_ocean_model
 
-      procedure(ocean_model_allocate_ifc),   deferred :: allocate
-      procedure(ocean_model_deallocate_ifc), deferred :: deallocate
-      procedure(initialise_ocean_model_ifc), deferred :: initialise_ocean_model
-      procedure(run_ocean_model_ifc),        deferred :: run_ocean_model
-      procedure(remap_ocean_model_ifc),      deferred :: remap_ocean_model
-
-      ! Factory functions to create model context objects
-      procedure, nopass, public :: ct_initialise
-      procedure, nopass, public :: ct_run
-      procedure, nopass, public :: ct_remap
+      procedure, public                             :: get_model_name
+      procedure(get_ocean_model_name_ifc), deferred :: get_ocean_model_name
 
   end type atype_ocean_model
-
-  ! Context classes for allocate/initialise/run/remap
-  ! =================================================
-
-  type, extends(atype_model_context_initialise) :: type_ocean_model_context_initialise
-  end type type_ocean_model_context_initialise
-
-  type, extends(atype_model_context_run) :: type_ocean_model_context_run
-  end type type_ocean_model_context_run
-
-  type, extends(atype_model_context_remap) :: type_ocean_model_context_remap
-  end type type_ocean_model_context_remap
 
   ! Abstract interfaces for deferred procedures
   ! ===========================================
 
   abstract interface
 
-    subroutine ocean_model_allocate_ifc( self, name, region_name, mesh)
-      import atype_ocean_model, type_mesh
+    subroutine ocean_model_allocate_ifc( self)
+      import atype_ocean_model
       class(atype_ocean_model), intent(inout) :: self
-      character(len=*),         intent(in   ) :: name
-      character(len=*),         intent(in   ) :: region_name
-      type(type_mesh), target,  intent(in   ) :: mesh
     end subroutine ocean_model_allocate_ifc
 
     subroutine ocean_model_deallocate_ifc( self)
@@ -86,84 +62,49 @@ module ocean_model_basic
       class(atype_ocean_model), intent(inout) :: self
     end subroutine ocean_model_deallocate_ifc
 
-    subroutine initialise_ocean_model_ifc( self, context)
-      import atype_ocean_model, type_ocean_model_context_initialise
-      class(atype_ocean_model),                          intent(inout) :: self
-      type(type_ocean_model_context_initialise), target, intent(in   ) :: context
-    end subroutine initialise_ocean_model_ifc
+    subroutine ocean_model_initialise_ifc( self)
+      import atype_ocean_model
+      class(atype_ocean_model), intent(inout) :: self
+    end subroutine ocean_model_initialise_ifc
 
-    subroutine run_ocean_model_ifc( self, context)
-      import atype_ocean_model, type_ocean_model_context_run
-      class(atype_ocean_model),                   intent(inout) :: self
-      type(type_ocean_model_context_run), target, intent(in   ) :: context
-    end subroutine run_ocean_model_ifc
+    subroutine ocean_model_run_ifc( self)
+      import atype_ocean_model
+      class(atype_ocean_model), intent(inout) :: self
+    end subroutine ocean_model_run_ifc
 
-    subroutine remap_ocean_model_ifc( self, context)
-      import atype_ocean_model, type_ocean_model_context_remap
-      class(atype_ocean_model),                     intent(inout) :: self
-      type(type_ocean_model_context_remap), target, intent(in   ) :: context
-    end subroutine remap_ocean_model_ifc
+    subroutine ocean_model_remap_ifc( self, mesh_new)
+      import atype_ocean_model, type_mesh
+      class(atype_ocean_model), intent(inout) :: self
+      type(type_mesh), target,  intent(in   ) :: mesh_new
+    end subroutine ocean_model_remap_ifc
 
-  end interface
-
-  ! Interfaces to type-bound procedures defined in submodules
-  ! =========================================================
-
-  interface
-
-    module subroutine initialise_model_abs( self, context)
-      class(atype_ocean_model),                      intent(inout) :: self
-      class(atype_model_context_initialise), target, intent(in   ) :: context
-    end subroutine initialise_model_abs
-
-    module subroutine run_model_abs( self, context)
-      class(atype_ocean_model),               intent(inout) :: self
-      class(atype_model_context_run), target, intent(in   ) :: context
-    end subroutine run_model_abs
-
-    module subroutine remap_model_abs( self, context)
-      class(atype_ocean_model),                 intent(inout) :: self
-      class(atype_model_context_remap), target, intent(in   ) :: context
-    end subroutine remap_model_abs
-
-    module function ct_initialise() result( context)
-      type(type_ocean_model_context_initialise)  :: context
-    end function ct_initialise
-
-    module function ct_run( time) result( context)
-      real(dp),               intent(in) :: time
-      type(type_ocean_model_context_run) :: context
-    end function ct_run
-
-    module function ct_remap( mesh_new) result( context)
-      type(type_mesh), target, intent(in) :: mesh_new
-      type(type_ocean_model_context_remap) :: context
-    end function ct_remap
+    function get_ocean_model_name_ifc( self) result( ocean_model_name)
+      import atype_ocean_model
+      class(atype_ocean_model), intent(in) :: self
+      character(len=:), allocatable        :: ocean_model_name
+    end function get_ocean_model_name_ifc
 
   end interface
 
 contains
 
-  subroutine allocate_ocean_model( self, name, region_name, mesh)
-    !< Allocate stuff that is common to all ocean models
-    !< (call this from your ocean model-specific allocation routine)
+  subroutine ocean_model_allocate( self, region_name, mesh)
 
     ! In/output variables:
     class(atype_ocean_model), intent(inout) :: self
-    character(len=*),         intent(in   ) :: name
     character(len=*),         intent(in   ) :: region_name
     type(type_mesh), target,  intent(in   ) :: mesh
 
     ! Local variables:
-    character(len=*), parameter :: routine_name = 'allocate_ocean_model'
+    character(len=*), parameter :: routine_name = 'ocean_model_allocate'
 
     ! Add routine to call stack
     call init_routine( routine_name)
 
     ! Allocate stuff that is common to all models
-    call self%allocate_model( name, region_name, mesh)
+    call self%allocate_model( region_name, mesh)
 
-    ! Allocate stuff that is specific to ocean models
+    ! Allocate stuff that is common to all ocean models
 
     ! Main data fields
     ! ================
@@ -195,20 +136,21 @@ contains
       long_name = 'Ocean freezing temperature at ice draft', &
       units     = 'degrees Celsius')
 
+    ! Allocate stuff that is specific to each individual ocean model implementation
+    call self%allocate_ocean_model()
+
     ! Remove routine from call stack
     call finalise_routine( routine_name)
 
-  end subroutine allocate_ocean_model
+  end subroutine ocean_model_allocate
 
-  subroutine deallocate_ocean_model( self)
-    !< Deallocate stuff that is common to all ocean models
-    !< (call this from your ocean model-specific allocation routine)
+  subroutine ocean_model_deallocate( self)
 
     ! In/output variables:
     class(atype_ocean_model), intent(inout) :: self
 
     ! Local variables:
-    character(len=*), parameter :: routine_name = 'deallocate_ocean_model'
+    character(len=*), parameter :: routine_name = 'ocean_model_deallocate'
 
     ! Add routine to call stack
     call init_routine( routine_name)
@@ -216,16 +158,106 @@ contains
     ! Deallocate stuff that is common to all models
     call self%deallocate_model()
 
-    ! Deallocate stuff that is specific to ocean models
+    ! Deallocate stuff that is common to all ocean models
 
     nullify( self%T)
     nullify( self%S)
     nullify( self%T_draft)
     nullify( self%T_freezing_point)
 
+    ! Deallocate stuff that is specific to each individual ocean model implementation
+    call self%deallocate_ocean_model()
+
     ! Remove routine from call stack
     call finalise_routine( routine_name)
 
-  end subroutine deallocate_ocean_model
+  end subroutine ocean_model_deallocate
+
+  subroutine ocean_model_initialise( self)
+
+    ! In/output variables:
+    class(atype_ocean_model), intent(inout) :: self
+
+    ! Local variables:
+    character(len=*), parameter :: routine_name = 'ocean_model_initialise'
+
+    ! Add routine to call stack
+    call init_routine( routine_name)
+
+    ! Initialise stuff that is common to all models
+    call self%initialise_model()
+
+    ! Initialise stuff that is common to all ocean models
+
+    ! Set time of next calculation to start time
+    self%t_next = C%start_time_of_run
+
+    ! Initialise stuff that is specific to each individual ocean model implementation
+    call self%initialise_ocean_model()
+
+    ! Remove routine from call stack
+    call finalise_routine( routine_name)
+
+  end subroutine ocean_model_initialise
+
+  subroutine ocean_model_run( self)
+
+    ! In/output variables:
+    class(atype_ocean_model), intent(inout) :: self
+
+    ! Local variables:
+    character(len=*), parameter :: routine_name = 'ocean_model_run'
+
+    ! Add routine to call stack
+    call init_routine( routine_name)
+
+    ! Run stuff that is common to all models
+    call self%run_model()
+
+    ! Run stuff that is common to all ocean models
+
+    ! Run stuff that is specific to each individual ocean model implementation
+    call self%run_ocean_model()
+
+    ! Remove routine from call stack
+    call finalise_routine( routine_name)
+
+  end subroutine ocean_model_run
+
+  subroutine ocean_model_remap( self, mesh_new)
+
+    ! In/output variables:
+    class(atype_ocean_model), intent(inout) :: self
+    type(type_mesh), target,  intent(in   ) :: mesh_new
+
+    ! Local variables:
+    character(len=*), parameter :: routine_name = 'ocean_model_remap'
+
+    ! Add routine to call stack
+    call init_routine( routine_name)
+
+    ! Remap stuff that is common to all models
+    call self%remap_model( mesh_new)
+
+    ! Remap stuff that is common to all ocean models
+
+    call self%remap_field( mesh_new, 'T'               , self%T)
+    call self%remap_field( mesh_new, 'S'               , self%S)
+    call self%remap_field( mesh_new, 'T_draft'         , self%T_draft)
+    call self%remap_field( mesh_new, 'T_freezing_point', self%T_freezing_point)
+
+    ! Remap stuff that is specific to each individual ocean model implementation
+    call self%remap_ocean_model( mesh_new)
+
+    ! Remove routine from call stack
+    call finalise_routine( routine_name)
+
+  end subroutine ocean_model_remap
+
+  function get_model_name( self) result( model_name)
+    class(atype_ocean_model), intent(in) :: self
+    character(len=:), allocatable        :: model_name
+    model_name = 'ocean_' // self%get_ocean_model_name()
+  end function get_model_name
 
 end module ocean_model_basic

@@ -9,6 +9,7 @@ MODULE ice_model_types
   use graph_types, only: type_graph_pair
   use mpi_f08, only: MPI_WIN
   use basal_hydrology_model_types, only: type_basal_hydrology_model
+  use ice_geometry_model_basic, only: type_ice_geometry_model
 
   IMPLICIT NONE
 
@@ -300,15 +301,7 @@ MODULE ice_model_types
   ! ==========================
 
     ! Basic geometry
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Hi                          ! [m] Ice thickness
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Hb                          ! [m] Bedrock elevation (w.r.t. PD sea level)
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Hs                          ! [m] Surface elevation (w.r.t. PD sea level)
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: SL                          ! [m] Sea level (geoid) elevation (w.r.t. PD sea level)
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Hib                         ! [m] Ice base elevation (w.r.t. PD sea level)
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: TAF                         ! [m] Thickness above flotation
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Hi_eff                      ! [m] Effective thickness of ice margins
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Hs_slope                    ! [-] Absolute surface gradient
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Ho                          ! [m] Depth of ocean column adjacent to the ice front
+    type(type_ice_geometry_model) :: geom
 
     ! Geometry changes
     REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi                         ! [m] Ice thickness difference (w.r.t. reference)
@@ -324,43 +317,15 @@ MODULE ice_model_types
     REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi_dt_raw                  ! [m yr^-1] Ice thickness rate of change before any ice thickness modifications
     REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi_dt_residual             ! [m yr^-1] Residual ice thickness rate of change for inversions
 
-    ! Horizontal derivatives
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHib_dx_b                   ! [] Horizontal derivative of ice draft on b-grid
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHib_dy_b                   ! [] Horizontal derivative of ice draft on b-grid
-
     ! Target quantities
     REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi_dt_target               ! [m yr^-1] Target ice thickness rate of change for inversions
 
     ! Masks
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_icefree_land           ! T: ice-free land , F: otherwise
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_icefree_ocean          ! T: ice-free ocean, F: otherwise
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_grounded_ice           ! T: grounded ice  , F: otherwise
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_floating_ice           ! T: floating ice  , F: otherwise
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_icefree_land_prev      ! T: ice-free land , F: otherwise (during previous time step)
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_icefree_ocean_prev     ! T: ice-free ocean, F: otherwise (during previous time step)
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_grounded_ice_prev      ! T: grounded ice  , F: otherwise (during previous time step)
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_floating_ice_prev      ! T: floating ice  , F: otherwise (during previous time step)
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_margin                 ! T: ice next to ice-free, F: otherwise
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_gl_gr                  ! T: grounded ice next to floating ice, F: otherwise
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_gl_fl                  ! T: floating ice next to grounded ice, F: otherwise
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_cf_gr                  ! T: grounded ice next to ice-free water (sea or lake), F: otherwise
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_cf_fl                  ! T: floating ice next to ice-free water (sea or lake), F: otherwise
-    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_coastline              ! T: ice-free land next to ice-free ocean, F: otherwise
     LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_noice                  ! T: no ice is allowed here, F: ice is allowed here
     LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_SGD                    ! T: potential subglacial discharge area, F: otherwise
     INTEGER,  DIMENSION(:    ), ALLOCATABLE :: mask_ROI                    ! list respective ROI number, zero otherwise (all zero when no ROI is specified)
-    INTEGER,  DIMENSION(:    ), ALLOCATABLE :: mask                        ! Diagnostic, only meant for quick visual inspection in output
     INTEGER,  DIMENSION(:    ), ALLOCATABLE :: basin_ID                    ! The drainage basin to which each vertex belongs
     INTEGER                                 :: nROI                        ! Number of ROI masks in the ice model type
-
-    ! Area fractions
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: fraction_gr                 ! [0-1] Grounded area fractions of vertices
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: fraction_gr_b               ! [0-1] Grounded area fractions of triangles
-    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: fraction_margin             ! [0-1] Ice-covered area fractions of ice margins
-
-    ! Sub-grid bedrock cumulative density functions (CDFs)
-    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: bedrock_cdf                 ! [-] Sub-grid bedrock cumulative density functions on the a-grid (vertices)
-    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: bedrock_cdf_b               ! [-] Sub-grid bedrock cumulative density functions on the b-grid (triangles)
 
   ! === Terrain-following coordinate zeta gradients ===
   ! ===================================================

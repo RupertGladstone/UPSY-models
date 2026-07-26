@@ -41,7 +41,7 @@ contains
     call init_routine( routine_name)
 
     ! Gather global ice thickness
-    call gather_to_all( ice%Hi, Hi_tot)
+    call gather_to_all( ice%geom%Hi, Hi_tot)
 
     ! Initialise time step with maximum allowed value
     dt_crit_SIA = C%dt_ice_max
@@ -100,8 +100,8 @@ contains
     call init_routine( routine_name)
 
     ! Gather global ice thickness
-    call gather_to_all( ice%Hi, Hi_tot)
-    call gather_to_all( ice%mask_floating_ice, mask_floating_ice_tot)
+    call gather_to_all( ice%geom%Hi, Hi_tot)
+    call gather_to_all( ice%geom%mask_floating_ice, mask_floating_ice_tot)
 
     ! Calculate vertically averaged ice velocities on the edges
     call map_velocities_from_b_to_c_2D( mesh, ice%u_vav_b, ice%v_vav_b, u_vav_c, v_vav_c)

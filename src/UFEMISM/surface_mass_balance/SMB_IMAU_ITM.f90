@@ -6,9 +6,7 @@ module SMB_IMAU_ITM
   use model_configuration, only: C
   use call_stack_and_comp_time_tracking, only: init_routine, finalise_routine, crash
   use mesh_types, only: type_mesh
-  use SMB_model_basic, only: atype_SMB_model, &
-    type_SMB_model_context_initialise, type_SMB_model_context_run, &
-    type_SMB_model_context_remap
+  use SMB_model_basic, only: atype_SMB_model
   use Arakawa_grid_mod, only: Arakawa_grid
   use fields_dimensions, only: third_dimension
   use mpi_f08, only: MPI_WIN
@@ -18,6 +16,9 @@ module SMB_IMAU_ITM
   use parameters, only: ice_density, T0, L_fusion, sec_per_year
   use climate_model_utilities, only: get_insolation_at_time
   use climate_realistic, only: initialise_insolation_forcing
+  use reference_geometry_types, only: type_reference_geometry
+  use grid_types, only: type_grid
+
   implicit none
 
   private
@@ -62,97 +63,30 @@ module SMB_IMAU_ITM
 
     contains
 
-      procedure, public :: allocate   => SMB_model_IMAU_ITM_allocate
-      procedure, public :: deallocate => SMB_model_IMAU_ITM_deallocate
-      procedure, public :: initialise_SMB_model => initialise_SMB_model_IMAU_ITM_abs
-      procedure, public :: run_SMB_model        => run_SMB_model_IMAU_ITM_abs
-      procedure, public :: remap_SMB_model      => remap_SMB_model_IMAU_ITM_abs
+      procedure, public :: allocate_SMB_model   => SMB_model_IMAU_ITM_allocate
+      procedure, public :: deallocate_SMB_model => SMB_model_IMAU_ITM_deallocate
+      procedure, public :: initialise_SMB_model => SMB_model_IMAU_ITM_initialise
+      procedure, public :: run_SMB_model        => SMB_model_IMAU_ITM_run
+      procedure, public :: remap_SMB_model      => SMB_model_IMAU_ITM_remap
 
-      procedure, private :: initialise_SMB_model_IMAU_ITM
+      procedure, public :: get_SMB_model_name
+
       procedure, private :: initialise_IMAU_ITM_firn_from_file
-      procedure, private :: run_SMB_model_IMAU_ITM
-      procedure, private :: remap_SMB_model_IMAU_ITM
 
   end type type_SMB_model_IMAU_ITM
 
 contains
 
-  subroutine initialise_SMB_model_IMAU_ITM_abs( self, context)
-
-    ! In/output variables:
-    class(type_SMB_model_IMAU_ITM),                  intent(inout) :: self
-    type(type_SMB_model_context_initialise), target, intent(in   ) :: context
-
-    ! Local variables:
-    character(len=1024), parameter :: routine_name = 'initialise_SMB_model_IMAU_ITM_abs'
-
-    ! Add routine to call stack
-    call init_routine( routine_name)
-
-    ! Retrieve input variables from context object
-    call self%initialise_SMB_model_IMAU_ITM( self%mesh, context%ice, self%region_name())
-
-    ! Remove routine from call stack
-    call finalise_routine( routine_name)
-
-  end subroutine initialise_SMB_model_IMAU_ITM_abs
-
-  subroutine run_SMB_model_IMAU_ITM_abs( self, context)
-
-    ! In/output variables:
-    class(type_SMB_model_IMAU_ITM),           intent(inout) :: self
-    type(type_SMB_model_context_run), target, intent(in   ) :: context
-
-    ! Local variables:
-    character(len=1024), parameter :: routine_name = 'run_SMB_model_IMAU_ITM_abs'
-
-    ! Add routine to call stack
-    call init_routine( routine_name)
-
-    ! Retrieve input variables from context object
-    call self%run_SMB_model_IMAU_ITM( self%mesh, context%ice, context%climate, context%time, self%region_name())
-
-    ! Remove routine from call stack
-    call finalise_routine( routine_name)
-
-  end subroutine run_SMB_model_IMAU_ITM_abs
-
-  subroutine remap_SMB_model_IMAU_ITM_abs( self, context)
-
-    ! In/output variables:
-    class(type_SMB_model_IMAU_ITM),             intent(inout) :: self
-    type(type_SMB_model_context_remap), target, intent(in   ) :: context
-
-    ! Local variables:
-    character(len=1024), parameter :: routine_name = 'remap_SMB_model_IMAU_ITM_abs'
-
-    ! Add routine to call stack
-    call init_routine( routine_name)
-
-    call self%remap_SMB_model_IMAU_ITM( context%mesh_new)
-
-    ! Remove routine from call stack
-    call finalise_routine( routine_name)
-
-  end subroutine remap_SMB_model_IMAU_ITM_abs
-
-
-
-  subroutine SMB_model_IMAU_ITM_allocate( self, region_name, mesh)
+  subroutine SMB_model_IMAU_ITM_allocate( self)
 
     ! In/output variables:
     class(type_SMB_model_IMAU_ITM), intent(inout) :: self
-    character(len=*),               intent(in   ) :: region_name
-    type(type_mesh), target,        intent(in   ) :: mesh
 
     ! Local variables:
     character(len=*), parameter :: routine_name = 'SMB_model_IMAU_ITM_allocate'
 
     ! Add routine to call stack
     call init_routine( routine_name)
-
-    ! Allocate all the stuff that is common to all SMB models
-    call self%allocate_SMB_model( 'SMB_IMAU_ITM', region_name, mesh)
 
     ! Allocate all the stuff that is specific to the IMAU_ITM SMB model
 
@@ -250,9 +184,6 @@ contains
     ! Add routine to call stack
     call init_routine( routine_name)
 
-    ! Deallocate all the stuff that is common to all SMB models
-    call self%deallocate_SMB_model()
-
     ! Deallocate all the stuff that is specific to SMB model IMAU_ITM
 
     nullify( self%AlbedoSurf)
@@ -274,26 +205,28 @@ contains
 
   end subroutine SMB_model_IMAU_ITM_deallocate
 
-  subroutine initialise_SMB_model_IMAU_ITM( self, mesh, ice, region_name)
+  subroutine SMB_model_IMAU_ITM_initialise( self, ice, refgeo_init, refgeo_PD)
 
     ! In/output variables
     class(type_SMB_model_IMAU_ITM), intent(inout) :: self
-    type(type_mesh),                intent(in   ) :: mesh
     type(type_ice_model),           intent(in   ) :: ice
-    character(len=3),               intent(in   ) :: region_name
+    type(type_reference_geometry),  intent(in   ) :: refgeo_init
+    type(type_reference_geometry),  intent(in   ) :: refgeo_PD
 
     ! Local variables:
-    character(len=1024), parameter :: routine_name = 'initialise_SMB_model_IMAU_ITM'
-    integer                        :: vi
-    character(:), allocatable      :: choice_SMB_IMAUITM_init_firn
+    character(len=*), parameter :: routine_name = 'SMB_model_IMAU_ITM_initialise'
+    integer                     :: vi
+    character(:), allocatable   :: choice_SMB_IMAUITM_init_firn
 
     ! Add routine to path
     call init_routine( routine_name)
 
+    ! Initialise all the stuff that is specific to SMB model IMAU_ITM
+
     ! Determine which constants to use for this region
-    select case (region_name)
+    select case (self%region_name())
     case default
-      call crash('unknown region_name "' // region_name // '"')
+      call crash('unknown self%region_name "' // self%region_name() // '"')
     case ('NAM')
       choice_SMB_IMAUITM_init_firn = C%choice_SMB_IMAUITM_init_firn_NAM
       self%C_abl_constant       = C%SMB_IMAUITM_C_abl_constant_NAM
@@ -333,8 +266,8 @@ contains
     case ('uniform')
       ! Initialise with a uniform firn layer over the ice sheet
 
-      do vi = mesh%vi1, mesh%vi2
-        if (ice%Hi( vi) > 0._dp) then
+      do vi = self%mesh%vi1, self%mesh%vi2
+        if (ice%geom%Hi( vi) > 0._dp) then
           self%FirnDepth       ( vi,:) = C%SMB_IMAUITM_initial_firn_thickness
           self%MeltPreviousYear( vi  ) = 0._dp
         else
@@ -345,19 +278,19 @@ contains
 
     case ('read_from_file')
       ! Initialise with the firn layer of a previous run
-      call self%initialise_IMAU_ITM_firn_from_file( mesh, region_name)
+      call self%initialise_IMAU_ITM_firn_from_file( self%mesh, self%region_name())
     end select
 
     ! Initialise albedo
-    do vi = mesh%vi1, mesh%vi2
+    do vi = self%mesh%vi1, self%mesh%vi2
 
       ! Background albedo
-      if (ice%Hb( vi) < 0._dp) then
+      if (ice%geom%Hb( vi) < 0._dp) then
         self%AlbedoSurf( vi) = self%albedo_water
       else
         self%AlbedoSurf( vi) = self%albedo_soil
       end if
-      if (ice%Hi( vi) > 0._dp) then
+      if (ice%geom%Hi( vi) > 0._dp) then
         self%AlbedoSurf( vi) = self%albedo_snow
       end if
 
@@ -368,7 +301,7 @@ contains
     ! Finalise routine path
     call finalise_routine( routine_name)
 
-  end subroutine initialise_SMB_model_IMAU_ITM
+  end subroutine SMB_model_IMAU_ITM_initialise
 
   subroutine initialise_IMAU_ITM_firn_from_file( self, mesh, region_name)
     !< Initialise the firn depth and meltpreviousyear data from a NetCDF file
@@ -424,42 +357,43 @@ contains
 
   end subroutine initialise_IMAU_ITM_firn_from_file
 
-  subroutine run_SMB_model_IMAU_ITM( self, mesh, ice, climate, time, region_name)
+  subroutine SMB_model_IMAU_ITM_run( self, time, ice, climate, grid_smooth)
 
     ! NOTE: all the SMB components are in meters of water equivalent;
     !       the end result (SMB_monthly and SMB) are in meters of ice equivalent.
 
     ! In/output variables:
     class(type_SMB_model_IMAU_ITM), intent(inout) :: self
-    type(type_mesh),                intent(in   ) :: mesh
+    real(dp),                       intent(in   ) :: time
     type(type_ice_model),           intent(in   ) :: ice
     type(type_climate_model),       intent(inout) :: climate
-    REAL(dp),                       intent(in   ) :: time
-    character(len=3),               intent(in   ) :: region_name
+    type(type_grid),                intent(in   ) :: grid_smooth
 
     ! Local variables:
-    character(len=1024), parameter :: routine_name = 'run_SMB_model_IMAU_ITM'
-    integer                        :: vi
-    integer                        :: m, mprev
-    real(dp)                       :: snowfrac, liquid_water, sup_imp_wat
-    real(dp)                       :: timeframe_init_insolation
+    character(len=*), parameter       :: routine_name = 'SMB_model_IMAU_ITM_run'
+    integer                           :: vi
+    integer                           :: m, mprev
+    real(dp)                          :: snowfrac, liquid_water, sup_imp_wat
+    real(dp)                          :: timeframe_init_insolation
     type(type_climate_model_snapshot) :: snapshot_dummy
 
     ! Add routine to call stack
     call init_routine( routine_name)
 
+    ! Run all the stuff that is specific to SMB model idealised
+
     ! Initialise insolation if needed
     if (.not. allocated(climate%Q_TOA)) then
-      allocate( climate%Q_TOA  ( mesh%vi1:mesh%vi2, 12),source=0.0_dp)
-      CALL initialise_insolation_forcing( snapshot_dummy, mesh)
+      allocate( climate%Q_TOA  ( self%mesh%vi1:self%mesh%vi2, 12),source=0.0_dp)
+      CALL initialise_insolation_forcing( snapshot_dummy, self%mesh)
 
       IF (C%start_time_of_run < 0._dp) THEN
         timeframe_init_insolation = C%start_time_of_run
       ELSE
         timeframe_init_insolation = 0._dp
       END IF
-      CALL get_insolation_at_time( mesh, timeframe_init_insolation, snapshot_dummy)
-      do vi = mesh%vi1, mesh%vi2
+      CALL get_insolation_at_time( self%mesh, timeframe_init_insolation, snapshot_dummy)
+      do vi = self%mesh%vi1, self%mesh%vi2
         do m=1,12
           climate%Q_TOA(vi, m) = snapshot_dummy%Q_TOA(vi, m)
         end do
@@ -467,12 +401,12 @@ contains
     else
     end if
 
-    do vi = mesh%vi1, mesh%vi2
+    do vi = self%mesh%vi1, self%mesh%vi2
 
       ! Background albedo
       self%AlbedoSurf( vi) = self%albedo_soil
-      if ((ice%mask_icefree_ocean( vi) .eqv. .true. .and. ice%mask_floating_ice( vi) .eqv. .false.) .or. ice%mask_noice( vi) .eqv. .true.) self%AlbedoSurf( vi) = self%albedo_water
-      if (ice%mask_grounded_ice(   vi) .eqv. .true. .or.  ice%mask_floating_ice( vi) .eqv. .true.) self%AlbedoSurf( vi) = self%albedo_ice
+      if ((ice%geom%mask_icefree_ocean( vi) .eqv. .true. .and. ice%geom%mask_floating_ice( vi) .eqv. .false.) .or. ice%mask_noice( vi) .eqv. .true.) self%AlbedoSurf( vi) = self%albedo_water
+      if (ice%geom%mask_grounded_ice(   vi) .eqv. .true. .or.  ice%geom%mask_floating_ice( vi) .eqv. .true.) self%AlbedoSurf( vi) = self%albedo_ice
 
       do m = 1, 12  ! Month loop
 
@@ -481,7 +415,7 @@ contains
 
         self%Albedo( vi,m) = min( self%albedo_snow, max( self%AlbedoSurf( vi), self%albedo_snow - (self%albedo_snow - self%AlbedoSurf( vi))  * &
                              exp(-15._dp * self%FirnDepth( vi,mprev)) - 0.015_dp * self%MeltPreviousYear( vi)))
-        if ((ice%mask_icefree_ocean( vi) .eqv. .true. .and. ice%mask_floating_ice( vi) .eqv. .false.) .or. ice%mask_noice( vi) .eqv. .true.) self%Albedo( vi,m) = self%albedo_water
+        if ((ice%geom%mask_icefree_ocean( vi) .eqv. .true. .and. ice%geom%mask_floating_ice( vi) .eqv. .false.) .or. ice%mask_noice( vi) .eqv. .true.) self%Albedo( vi,m) = self%albedo_water
 
         ! Determine ablation as a function of surface temperature and albedo/insolation according to Bintanja et al. (2002)
         self%Melt( vi,m) = max(0._dp, ( self%C_abl_Ts         * (climate%T2m( vi,m) - T0) + &
@@ -521,8 +455,8 @@ contains
       self%Refreezing_year( vi) = min( min( min( sup_imp_wat, liquid_water), sum(climate%Precip( vi,:))), 0.25_dp * sum( self%FirnDepth( vi,:) / 12._dp)) ! version from IMAU-ICE dev branch
       !SMB%Refreezing_year( vi) = min( min( sup_imp_wat, liquid_water), sum( climate%Precip( vi,:))) ! outdated version on main branch
 
-      if (ice%mask_grounded_ice( vi)  .eqv. .false. .or. ice%mask_floating_ice( vi) .eqv. .false.) self%Refreezing_year( vi) = 0._dp
-      if (ice%mask_icefree_ocean( vi) .eqv. .true.)                                                self%AddedFirn( vi,:)     = 0._dp ! Does it make sense to add firn over the ocean?!
+      if (ice%geom%mask_grounded_ice( vi)  .eqv. .false. .or. ice%geom%mask_floating_ice( vi) .eqv. .false.) self%Refreezing_year( vi) = 0._dp
+      if (ice%geom%mask_icefree_ocean( vi) .eqv. .true.)                                                self%AddedFirn( vi,:)     = 0._dp ! Does it make sense to add firn over the ocean?!
 
       do m = 1, 12
         self%Refreezing(  vi,m) = self%Refreezing_year( vi) / 12._dp
@@ -531,7 +465,7 @@ contains
       end do
 
       self%SMB( vi) = sum( self%SMB_monthly( vi,:))
-      !if (ice%mask_icefree_ocean( vi) .eqv. .true.) SMB%SMB( vi) = 0._dp ! should we limit SMB over open ocean?
+      !if (ice%geom%mask_icefree_ocean( vi) .eqv. .true.) SMB%SMB( vi) = 0._dp ! should we limit SMB over open ocean?
 
       ! Calculate total melt over this year, to be used for determining next year's albedo
       self%MeltPreviousYear( vi) = sum( self%Melt( vi,:))
@@ -539,26 +473,30 @@ contains
     end do
 
     ! Convert final SMB from water to ice equivalent
-    self%SMB_monthly( mesh%vi1:mesh%vi2,:) = self%SMB_monthly(  mesh%vi1:mesh%vi2,:) * 1000._dp / ice_density
-    self%SMB(         mesh%vi1:mesh%vi2  ) = self%SMB(          mesh%vi1:mesh%vi2  ) * 1000._dp / ice_density
+    self%SMB_monthly( self%mesh%vi1:self%mesh%vi2,:) = self%SMB_monthly(  self%mesh%vi1:self%mesh%vi2,:) * 1000._dp / ice_density
+    self%SMB(         self%mesh%vi1:self%mesh%vi2  ) = self%SMB(          self%mesh%vi1:self%mesh%vi2  ) * 1000._dp / ice_density
 
     ! Remove routine from call stack
     call finalise_routine( routine_name)
 
-  end subroutine run_SMB_model_IMAU_ITM
+  end subroutine SMB_model_IMAU_ITM_run
 
-  subroutine remap_SMB_model_IMAU_ITM( self, mesh_new)
+  subroutine SMB_model_IMAU_ITM_remap( self, mesh_new, time, refgeo_init, refgeo_PD, ice)
 
     ! In/output variables
-    class(type_SMB_model_IMAU_ITM), intent(inout) :: self
-    type(type_mesh),                intent(in   ) :: mesh_new
+    class(type_SMB_model_IMAU_ITM),        intent(inout) :: self
+    type(type_mesh), target,               intent(in   ) :: mesh_new
+    real(dp),                              intent(in   ) :: time
+    type(type_reference_geometry), target, intent(in   ) :: refgeo_init, refgeo_PD
+    type(type_ice_model),          target, intent(in   ) :: ice
 
     ! Local variables:
-    character(len=1024), parameter :: routine_name = 'remap_SMB_model_IMAU_ITM'
-    character(:), allocatable      :: choice_SMB_IMAU_ITM
+    character(len=*), parameter :: routine_name = 'SMB_model_IMAU_ITM_remap'
 
     ! Add routine to path
     call init_routine( routine_name)
+
+    ! Remap all the stuff that is specific to SMB model IMAU_ITM
 
     call self%remap_field( mesh_new, 'AlbedoSurf'      , self%AlbedoSurf       )
     call self%remap_field( mesh_new, 'MeltPreviousYear', self%MeltPreviousYear )
@@ -577,6 +515,12 @@ contains
     ! Finalise routine path
     call finalise_routine( routine_name)
 
-  end subroutine remap_SMB_model_IMAU_ITM
+  end subroutine SMB_model_IMAU_ITM_remap
+
+  function get_SMB_model_name( self) result( SMB_model_name)
+    class(type_SMB_model_IMAU_ITM), intent(in) :: self
+    character(len=:), allocatable :: SMB_model_name
+    SMB_model_name = 'IMAU_ITM'
+  end function get_SMB_model_name
 
 end module SMB_IMAU_ITM

@@ -71,7 +71,7 @@ CONTAINS
     DO k = 1, C%nz
 
       ! No ice means no heating
-      IF (ice%Hi( vi) < 0.1_dp) THEN
+      IF (ice%geom%Hi( vi) < 0.1_dp) THEN
         ice%internal_heating( vi,k) = 0._dp
         CYCLE
       END IF
@@ -120,7 +120,7 @@ CONTAINS
 
     ! Calculate frictional heating
     DO vi = mesh%vi1, mesh%vi2
-      IF (ice%mask_grounded_ice( vi)) THEN
+      IF (ice%geom%mask_grounded_ice( vi)) THEN
         ice%frictional_heating( vi) = ice%basal_friction_coefficient( vi) * ice%uabs_base( vi)
       ELSE
         ice%frictional_heating( vi) = 0._dp
@@ -230,7 +230,7 @@ CONTAINS
 
     DO vi = mesh%vi1, mesh%vi2
     DO k = 1, mesh%nz
-      ice%Ti_pmp( vi,k) = T0 - Clausius_Clapeyron_gradient * ice%Hi_eff( vi) * mesh%zeta( k)
+      ice%Ti_pmp( vi,k) = T0 - Clausius_Clapeyron_gradient * ice%geom%Hi_eff( vi) * mesh%zeta( k)
     END DO
     END DO
 
@@ -305,44 +305,44 @@ CONTAINS
 
     Ts = MIN( T0, SUM( climate%T2m( vi,:)) / REAL( SIZE( climate%T2m,2),dp))
 
-    IF (ice%Hi_eff( vi) > C%Hi_min_thermo) THEN
+    IF (ice%geom%Hi_eff( vi) > C%Hi_min_thermo) THEN
       ! This vertex has enough ice to have a noticeable temperature profile
 
-      IF (ice%mask_grounded_ice( vi)) THEN
+      IF (ice%geom%mask_grounded_ice( vi)) THEN
         ! This vertex has more than 1m of grounded ice
 
         IF (SMB%SMB( vi) > 0._dp) THEN
           ! The Robin solution can be used to estimate the subsurface temperature profile in an accumulation area
 
-          thermal_length_scale = SQRT( 2._dp * thermal_diffusivity_Robin * ice%Hi_eff( vi) / SMB%SMB( vi))
+          thermal_length_scale = SQRT( 2._dp * thermal_diffusivity_Robin * ice%geom%Hi_eff( vi) / SMB%SMB( vi))
           DO k = 1, C%nz
-            distance_above_bed = (1._dp - mesh%zeta( k)) * ice%Hi_eff( vi)
+            distance_above_bed = (1._dp - mesh%zeta( k)) * ice%geom%Hi_eff( vi)
             erf1 = erf( distance_above_bed / thermal_length_scale)
-            erf2 = erf( ice%Hi_eff( vi) / thermal_length_scale)
+            erf2 = erf( ice%geom%Hi_eff( vi) / thermal_length_scale)
             Ti( vi,k) = Ts + SQRT(pi) / 2._dp * thermal_length_scale * bottom_temperature_gradient_Robin * (erf1 - erf2)
           END DO
 
         ELSE ! IF (SMB%SMB( vi) > 0._dp) THEN
 
           ! Ablation area: use linear temperature profile from Ts to (offset below) T_pmp
-          Ti( vi,:) = Ts + ((T0 - Clausius_Clapeyron_gradient * ice%Hi_eff( vi)) - Ts) * mesh%zeta
+          Ti( vi,:) = Ts + ((T0 - Clausius_Clapeyron_gradient * ice%geom%Hi_eff( vi)) - Ts) * mesh%zeta
 
         END IF ! IF (SMB%SMB( vi) > 0._dp) THEN
 
-      ELSEIF( ice%mask_floating_ice( vi)) THEN
+      ELSEIF( ice%geom%mask_floating_ice( vi)) THEN
         ! This vertex has more than 1m of floating ice
         ! Set a linear profile between T_surf and Ti_pmp_base
 
         Ti( vi,:) = Ts + mesh%zeta * (ice%Ti_pmp( vi,mesh%nz) - Ts)
 
-      END IF ! IF (ice%mask_grounded_ice( vi)) THEN
+      END IF
 
-    ELSE ! IF (ice%Hi_eff( vi) > C%Hi_min_thermo) THEN
+    ELSE ! IF (ice%geom%Hi_eff( vi) > C%Hi_min_thermo) THEN
       ! No (significant) ice present; set temperature to annual mean surface temperature
 
       Ti( vi,:) = Ts
 
-    END IF ! IF (ice%Hi_eff( vi) > C%Hi_min_thermo) THEN
+    END IF ! IF (ice%geom%Hi_eff( vi) > C%Hi_min_thermo) THEN
 
     ! Safety: limit temperatures to the pressure melting point
     DO k = 1, mesh%nz
@@ -389,7 +389,7 @@ CONTAINS
     DO vi = mesh%vi1, mesh%vi2
 
       ! Exception for the trivial case of no ice
-      IF (ice%Hi( vi) < 1._dp) THEN
+      IF (ice%geom%Hi( vi) < 1._dp) THEN
         u_times_dTdxp_upwind( vi,:) = 0._dp
         v_times_dTdyp_upwind( vi,:) = 0._dp
         CYCLE
@@ -459,7 +459,7 @@ CONTAINS
     TYPE(type_mesh),                     INTENT(IN)    :: mesh
     TYPE(type_ice_model),                INTENT(IN)    :: ice
     TYPE(type_BMB_model),                INTENT(INOUT) :: BMB
-    
+
     ! Local variables:
     CHARACTER(LEN=256), PARAMETER          :: routine_name = 'calc_grounded_basal_melt_rates_from_temp'
     real(dp)                               :: dz, L_base, hf_up, melting_temp_base, melting_temp_above
@@ -469,15 +469,15 @@ CONTAINS
 
     ! Add routine to path
     CALL init_routine( routine_name)
-        
-    DO vi = mesh%vi1, mesh%vi2    
+
+    DO vi = mesh%vi1, mesh%vi2
     ! we only compute BMB over grounded ice, and where it is at PMP
-    if (ice%mask_grounded_ice(vi) .OR. ice%mask_gl_gr( vi)) then
+    if (ice%geom%mask_grounded_ice(vi) .OR. ice%geom%mask_gl_gr( vi)) then
       if (ice%Ti_hom( vi) >= 0.0_dp) then
 
           d_zeta_temp = ice%Ti( vi, :)                                                            ! Extract vertical array of Ti
           call multiply_CSR_matrix_with_vector_local( mesh%M_ddzeta_k_k_1D, d_zeta_temp, dTdzeta) ! Compute the vertical gradients dT/dzeta
-          dTdz = -1._dp / ice%Hi( vi) * dTdzeta( mesh%nz)                                         ! Extract actual vertical gradient at bottom in dT/dz
+          dTdz = -1._dp / ice%geom%Hi( vi) * dTdzeta( mesh%nz)                                         ! Extract actual vertical gradient at bottom in dT/dz
           hf_up = -1._dp * ice%Ki( vi, C%nz) * dTdz                                               ! computes upwards heat flux
           L_base = L_fusion + (cp_water - cp_ice) * (ice%Ti( vi, C%nz) - 273.15_dp)               ! computes latent heat of bottom ice layer
 

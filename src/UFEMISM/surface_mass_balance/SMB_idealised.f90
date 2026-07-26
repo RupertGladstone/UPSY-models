@@ -5,10 +5,12 @@ module SMB_idealised
   use model_configuration, only: C
   use call_stack_and_comp_time_tracking, only: init_routine, finalise_routine, crash
   use mesh_types, only: type_mesh
-  use SMB_model_basic, only: atype_SMB_model, &
-    type_SMB_model_context_initialise, type_SMB_model_context_run, &
-    type_SMB_model_context_remap
+  use SMB_model_basic, only: atype_SMB_model
   use Halfar_SIA_solution, only: Halfar
+  use ice_model_types, only: type_ice_model
+  use climate_model_types, only: type_climate_model
+  use reference_geometry_types, only: type_reference_geometry
+  use grid_types, only: type_grid
 
   implicit none
 
@@ -20,13 +22,14 @@ module SMB_idealised
 
     contains
 
-      procedure, public :: allocate   => SMB_model_idealised_allocate
-      procedure, public :: deallocate => SMB_model_idealised_deallocate
-      procedure, public :: initialise_SMB_model => initialise_SMB_model_idealised_abs
-      procedure, public :: run_SMB_model        => run_SMB_model_idealised_abs
-      procedure, public :: remap_SMB_model      => remap_SMB_model_idealised_abs
+      procedure, public :: allocate_SMB_model   => SMB_model_idealised_allocate
+      procedure, public :: deallocate_SMB_model => SMB_model_idealised_deallocate
+      procedure, public :: initialise_SMB_model => SMB_model_idealised_initialise
+      procedure, public :: run_SMB_model        => SMB_model_idealised_run
+      procedure, public :: remap_SMB_model      => SMB_model_idealised_remap
 
-      procedure, private :: run_SMB_model_idealised
+      procedure, public :: get_SMB_model_name
+
       procedure, private :: run_SMB_model_idealised_EISMINT1
       procedure, private :: run_SMB_model_idealised_Halfar_static
 
@@ -34,21 +37,16 @@ module SMB_idealised
 
 contains
 
-  subroutine SMB_model_idealised_allocate( self, region_name, mesh)
+  subroutine SMB_model_idealised_allocate( self)
 
     ! In/output variables:
     class(type_SMB_model_idealised), intent(inout) :: self
-    character(len=*),                intent(in   ) :: region_name
-    type(type_mesh), target,         intent(in   ) :: mesh
 
     ! Local variables:
     character(len=*), parameter :: routine_name = 'SMB_model_idealised_allocate'
 
     ! Add routine to call stack
     call init_routine( routine_name)
-
-    ! Allocate all the stuff that is common to all SMB models
-    call self%allocate_SMB_model( 'SMB_idealised', region_name, mesh)
 
     ! Allocate all the stuff that is specific to the idealised SMB model
 
@@ -68,9 +66,6 @@ contains
     ! Add routine to call stack
     call init_routine( routine_name)
 
-    ! Deallocate all the stuff that is common to all SMB models
-    call self%deallocate_SMB_model()
-
     ! Deallocate all the stuff that is specific to SMB model idealised
 
 
@@ -79,91 +74,61 @@ contains
 
   end subroutine SMB_model_idealised_deallocate
 
-  subroutine initialise_SMB_model_idealised_abs( self, context)
-
-    ! In/output variables:
-    class(type_SMB_model_idealised),                 intent(inout) :: self
-    type(type_SMB_model_context_initialise), target, intent(in   ) :: context
-
-    ! Local variables:
-    character(len=1024), parameter :: routine_name = 'initialise_SMB_model_idealised_abs'
-
-    ! Add routine to call stack
-    call init_routine( routine_name)
-
-    ! Remove routine from call stack
-    call finalise_routine( routine_name)
-
-  end subroutine initialise_SMB_model_idealised_abs
-
-  subroutine run_SMB_model_idealised_abs( self, context)
-
-    ! In/output variables:
-    class(type_SMB_model_idealised),          intent(inout) :: self
-    type(type_SMB_model_context_run), target, intent(in   ) :: context
-
-    ! Local variables:
-    character(len=1024), parameter :: routine_name = 'run_SMB_model_idealised_abs'
-
-    ! Add routine to call stack
-    call init_routine( routine_name)
-
-    ! Retrieve input variables from context object
-    call self%run_SMB_model_idealised( self%mesh, context%time)
-
-    ! Remove routine from call stack
-    call finalise_routine( routine_name)
-
-  end subroutine run_SMB_model_idealised_abs
-
-  subroutine remap_SMB_model_idealised_abs( self, context)
-
-    ! In/output variables:
-    class(type_SMB_model_idealised),            intent(inout) :: self
-    type(type_SMB_model_context_remap), target, intent(in   ) :: context
-
-    ! Local variables:
-    character(len=1024), parameter :: routine_name = 'remap_SMB_model_idealised_abs'
-
-    ! Add routine to call stack
-    call init_routine( routine_name)
-
-    ! Remove routine from call stack
-    call finalise_routine( routine_name)
-
-  end subroutine remap_SMB_model_idealised_abs
-
-
-
-  subroutine run_SMB_model_idealised( self, mesh, time)
+  subroutine SMB_model_idealised_initialise( self, ice, refgeo_init, refgeo_PD)
 
     ! In/output variables:
     class(type_SMB_model_idealised), intent(inout) :: self
-    type(type_mesh),                 intent(in   ) :: mesh
-    real(dp),                        intent(in   ) :: time
+    type(type_ice_model),            intent(in   ) :: ice
+    type(type_reference_geometry),   intent(in   ) :: refgeo_init
+    type(type_reference_geometry),   intent(in   ) :: refgeo_PD
 
     ! Local variables:
-    character(len=1024), parameter :: routine_name = 'run_SMB_model_idealised'
+    character(len=*), parameter :: routine_name = 'SMB_model_idealised_initialise'
 
     ! Add routine to call stack
     call init_routine( routine_name)
+
+    ! Initialise all the stuff that is specific to SMB model idealised
+
+
+    ! Remove routine from call stack
+    call finalise_routine( routine_name)
+
+  end subroutine SMB_model_idealised_initialise
+
+  subroutine SMB_model_idealised_run( self, time, ice, climate, grid_smooth)
+
+    ! In/output variables:
+    class(type_SMB_model_idealised), intent(inout) :: self
+    real(dp),                        intent(in   ) :: time
+    type(type_ice_model),            intent(in   ) :: ice
+    type(type_climate_model),        intent(inout) :: climate
+    type(type_grid),                 intent(in   ) :: grid_smooth
+
+    ! Local variables:
+    character(len=*), parameter :: routine_name = 'run_SMB_model_idealised'
+
+    ! Add routine to call stack
+    call init_routine( routine_name)
+
+    ! Run all the stuff that is specific to SMB model idealised
 
     ! Run the chosen idealised SMB model
     select case (C%choice_SMB_model_idealised)
     case default
       call crash('unknown choice_SMB_model_idealised "' // trim( C%choice_SMB_model_idealised) // '"')
     case ('uniform')
-      self%SMB( mesh%vi1: mesh%vi2) = C%uniform_SMB
+      self%SMB( self%mesh%vi1: self%mesh%vi2) = C%uniform_SMB
     case ('EISMINT1_A', 'EISMINT1_B', 'EISMINT1_C', 'EISMINT1_D', 'EISMINT1_E', 'EISMINT1_F')
-      call self%run_SMB_model_idealised_EISMINT1( mesh, time)
+      call self%run_SMB_model_idealised_EISMINT1( self%mesh, time)
     case ('Halfar_static')
-      call self%run_SMB_model_idealised_Halfar_static( mesh)
+      call self%run_SMB_model_idealised_Halfar_static( self%mesh)
     end select
 
     ! Remove routine from call stack
     call finalise_routine( routine_name)
 
-  end subroutine run_SMB_model_idealised
+  end subroutine SMB_model_idealised_run
 
   subroutine run_SMB_model_idealised_EISMINT1( self, mesh, time)
     ! Calculate the surface mass balance
@@ -313,5 +278,33 @@ contains
     call finalise_routine( routine_name)
 
   end subroutine run_SMB_model_idealised_Halfar_static
+
+  subroutine SMB_model_idealised_remap( self, mesh_new, time, refgeo_init, refgeo_PD, ice)
+
+    ! In/output variables:
+    class(type_SMB_model_idealised),       intent(inout) :: self
+    type(type_mesh), target,               intent(in   ) :: mesh_new
+    real(dp),                              intent(in   ) :: time
+    type(type_reference_geometry), target, intent(in   ) :: refgeo_init, refgeo_PD
+    type(type_ice_model),          target, intent(in   ) :: ice
+
+    ! Local variables:
+    character(len=*), parameter :: routine_name = 'SMB_model_idealised_remap'
+
+    ! Add routine to call stack
+    call init_routine( routine_name)
+
+    ! Remap all the stuff that is specific to SMB model idealised
+
+    ! Remove routine from call stack
+    call finalise_routine( routine_name)
+
+  end subroutine SMB_model_idealised_remap
+
+  function get_SMB_model_name( self) result( SMB_model_name)
+    class(type_SMB_model_idealised), intent(in) :: self
+    character(len=:), allocatable :: SMB_model_name
+    SMB_model_name = 'idealised'
+  end function get_SMB_model_name
 
 end module SMB_idealised

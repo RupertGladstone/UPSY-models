@@ -1,7 +1,7 @@
 module ut_SMB
 
   use precisions, only: dp
-  use call_stack_and_comp_time_tracking, only: init_routine, finalise_routine
+  use call_stack_and_comp_time_tracking, only: init_routine, finalise_routine, warning
   use ut_basic, only: unit_test
   use tests_main, only: test_tol, test_ge_le
   use model_configuration, only: C
@@ -109,7 +109,7 @@ contains
     ! Create idealised SMB model
     call create_SMB_model( SMB, 'idealised')
     call SMB%allocate ( 'ANT', mesh)
-    call SMB%initialise( SMB%ct_initialise( ice, refgeo_init, refgeo_PD))
+    call SMB%initialise( ice, refgeo_init, refgeo_PD)
 
     ! Run idealised SMB model for static Halfar solution
     C%choice_SMB_model_idealised = 'Halfar_static'
@@ -117,7 +117,7 @@ contains
     C%refgeo_idealised_Halfar_R0 = 500e3_dp
     C%uniform_Glens_flow_factor  = 1e-16_dp
     time = 0._dp
-    call SMB%run( SMB%ct_run( time, ice, climate, grid_smooth))
+    call SMB%run( time, ice, climate, grid_smooth)
 
     ! Verify that it worked
     test_result = .true.
@@ -192,7 +192,7 @@ contains
 
     call create_SMB_model( SMB, 'prescribed')
     call SMB%allocate( 'ANT', mesh)
-    call SMB%initialise( SMB%ct_initialise( ice, refgeo_init, refgeo_PD))
+    call SMB%initialise( ice, refgeo_init, refgeo_PD)
 
     ! Verify that it worked
     test_result = .true.
@@ -224,6 +224,7 @@ contains
     integer                               :: vi, m
     real(dp)                              :: rp
     class(atype_SMB_model), allocatable   :: SMB
+    real(dp)                              :: time
     type(type_ice_model)         , target :: ice
     type(type_reference_geometry), target :: refgeo_init, refgeo_PD
     type(type_climate_model)     , target :: climate
@@ -251,29 +252,30 @@ contains
     end do
 
     ! Set up simple ice model fields
-    allocate( ice%Hi( mesh%vi1: mesh%vi2), source = 0._dp)
-    allocate( ice%Hb( mesh%vi1: mesh%vi2), source = 10._dp)
-    allocate( ice%Hs( mesh%vi1: mesh%vi2), source = 10._dp)
-    allocate( ice%mask_icefree_ocean( mesh%vi1: mesh%vi2), source = .false.)
-    allocate( ice%mask_floating_ice ( mesh%vi1: mesh%vi2), source = .false.)
+    allocate( ice%geom%Hi( mesh%vi1: mesh%vi2), source = 0._dp)
+    allocate( ice%geom%Hb( mesh%vi1: mesh%vi2), source = 10._dp)
+    allocate( ice%geom%Hs( mesh%vi1: mesh%vi2), source = 10._dp)
+    allocate( ice%geom%mask_icefree_ocean( mesh%vi1: mesh%vi2), source = .false.)
+    allocate( ice%geom%mask_floating_ice ( mesh%vi1: mesh%vi2), source = .false.)
     allocate( ice%mask_noice        ( mesh%vi1: mesh%vi2), source = .false.)
-    allocate( ice%mask_grounded_ice ( mesh%vi1: mesh%vi2), source = .false.)
+    allocate( ice%geom%mask_grounded_ice ( mesh%vi1: mesh%vi2), source = .false.)
 
     do vi = mesh%vi1, mesh%vi2
       rp = 1.5_dp * hypot( mesh%V( vi,1), mesh%V( vi,2)) / (mesh%xmax - mesh%xmin)
       if (rp < 0.5_dp) then
-        ice%mask_grounded_ice( vi) = .true.
-        ice%Hi( vi) = max( 0._dp, 1000._dp - 2000._dp * rp)
-        ice%Hs( vi) = ice%Hb( vi) + ice% Hi( vi)
-        climate%T2m( vi,:) = climate%T2m( vi,:) - ice%Hs( vi) * 0.008_dp
+        ice%geom%mask_grounded_ice( vi) = .true.
+        ice%geom%Hi( vi) = max( 0._dp, 1000._dp - 2000._dp * rp)
+        ice%geom%Hs( vi) = ice%geom%Hb( vi) + ice%geom%Hi( vi)
+        climate%T2m( vi,:) = climate%T2m( vi,:) - ice%geom%Hs( vi) * 0.008_dp
       end if
     end do
 
     ! Create and run IMAU-ITM SMB model
     call create_SMB_model( SMB, 'IMAU-ITM')
     call SMB%allocate( 'ANT', mesh)
-    call SMB%initialise( SMB%ct_initialise( ice, refgeo_init, refgeo_PD))
-    call SMB%run       ( SMB%ct_run( 0._dp, ice, climate, grid_smooth))
+    call SMB%initialise( ice, refgeo_init, refgeo_PD)
+    time = 0._dp
+    call SMB%run( time, ice, climate, grid_smooth)
 
     ! Verify that it worked
     SMB_min = minval( SMB%SMB)

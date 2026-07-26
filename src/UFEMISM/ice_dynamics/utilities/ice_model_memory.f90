@@ -15,14 +15,15 @@ module ice_model_memory
 
 contains
 
-  subroutine allocate_ice_model( mesh, ice)
+  subroutine allocate_ice_model( mesh, ice, region_name)
 
     ! In- and output variables
     type(type_mesh),      intent(in   ) :: mesh
     type(type_ice_model), intent(  out) :: ice
+    character(len=*),     intent(in   ) :: region_name
 
     ! Local variables:
-    character(len=1024), parameter :: routine_name = 'allocate_ice_model'
+    character(len=*), parameter :: routine_name = 'allocate_ice_model'
 
     ! Add routine to path
     call init_routine( routine_name)
@@ -30,16 +31,7 @@ contains
     ! === Ice-sheet geometry ===
     ! ==========================
 
-    ! Basic geometry
-    allocate( ice%Hi      ( mesh%vi1:mesh%vi2), source = 0._dp)
-    allocate( ice%Hb      ( mesh%vi1:mesh%vi2), source = 0._dp)
-    allocate( ice%Hs      ( mesh%vi1:mesh%vi2), source = 0._dp)
-    allocate( ice%SL      ( mesh%vi1:mesh%vi2), source = 0._dp)
-    allocate( ice%Hib     ( mesh%vi1:mesh%vi2), source = 0._dp)
-    allocate( ice%TAF     ( mesh%vi1:mesh%vi2), source = 0._dp)
-    allocate( ice%Hi_eff  ( mesh%vi1:mesh%vi2), source = 0._dp)
-    allocate( ice%Hs_slope( mesh%vi1:mesh%vi2), source = 0._dp)
-    allocate( ice%Ho      ( mesh%vi1:mesh%vi2), source = 0._dp)
+    call ice%geom%allocate( region_name, mesh)
 
     ! Geometry changes
     allocate( ice%dHi ( mesh%vi1:mesh%vi2), source = 0._dp)
@@ -55,42 +47,14 @@ contains
     allocate( ice%dHi_dt_raw     ( mesh%vi1:mesh%vi2), source = 0._dp)
     allocate( ice%dHi_dt_residual( mesh%vi1:mesh%vi2), source = 0._dp)
 
-    ! Horizontal derivatives
-    allocate( ice%dHib_dx_b( mesh%ti1:mesh%ti2), source = 0._dp)
-    allocate( ice%dHib_dy_b( mesh%ti1:mesh%ti2), source = 0._dp)
-
     ! Target quantities
     allocate( ice%dHi_dt_target   ( mesh%vi1:mesh%vi2), source = 0._dp)
 
     ! Masks
-    allocate( ice%mask_icefree_land      ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_icefree_ocean     ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_grounded_ice      ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_floating_ice      ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_icefree_land_prev ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_icefree_ocean_prev( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_grounded_ice_prev ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_floating_ice_prev ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_margin            ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_gl_gr             ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_gl_fl             ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_cf_gr             ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_cf_fl             ( mesh%vi1:mesh%vi2), source = .false.)
-    allocate( ice%mask_coastline         ( mesh%vi1:mesh%vi2), source = .false.)
     allocate( ice%mask_SGD               ( mesh%vi1:mesh%vi2), source = .false.)
     allocate( ice%mask_noice             ( mesh%vi1:mesh%vi2), source = .false.)
     allocate( ice%mask_ROI               ( mesh%vi1:mesh%vi2), source = 0)
-    allocate( ice%mask                   ( mesh%vi1:mesh%vi2), source = 0)
     allocate( ice%basin_ID               ( mesh%vi1:mesh%vi2), source = 0)
-
-    ! Area fractions
-    allocate( ice%fraction_gr    ( mesh%vi1:mesh%vi2), source = 0._dp)
-    allocate( ice%fraction_gr_b  ( mesh%ti1:mesh%ti2), source = 0._dp)
-    allocate( ice%fraction_margin( mesh%vi1:mesh%vi2), source = 0._dp)
-
-    ! Sub-grid bedrock cumulative density functions (CDFs)
-    allocate( ice%bedrock_cdf  ( mesh%vi1:mesh%vi2, C%subgrid_bedrock_cdf_nbins), source = 0._dp)
-    allocate( ice%bedrock_cdf_b( mesh%ti1:mesh%ti2, C%subgrid_bedrock_cdf_nbins), source = 0._dp)
 
     ! === Terrain-following coordinate zeta gradients ===
     ! ===================================================
