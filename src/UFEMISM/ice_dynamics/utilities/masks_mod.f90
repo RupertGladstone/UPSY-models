@@ -324,8 +324,11 @@ contains
     call init_routine( routine_name)
 
     select case (C%choice_laddie_SGD)
-      case ('none', 'read_transects')
-        ! No SGD: don't need to do anything
+      case ('none', 'read_transects', 'from_ISM')
+        ! No SGD mask needed: for 'from_ISM', the ice-sheet model's own coupler
+        ! (e.g. FISOC) already excludes grounded/icefree destination nodes at
+        ! the regridding stage, so no mask is computed here.
+        ! don't need to do anything
       case ('idealised')
         call calc_mask_SGD_idealised(mesh, ice)
       case ('read_from_file')
