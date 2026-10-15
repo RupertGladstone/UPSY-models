@@ -9,7 +9,7 @@ module climate_model_basic
   use fields_main, only: third_dimension
   use climate_model_data, only: atype_climate_model_data
   use mpi_f08, only: MPI_WIN
-  use ice_model_types, only: type_ice_model
+  use ice_geometry_model_data, only: atype_ice_geometry_model_data
   use reference_geometry_types, only: type_reference_geometry
 
   implicit none
@@ -62,18 +62,19 @@ module climate_model_basic
       class(atype_climate_model), intent(inout) :: self
     end subroutine climate_model_deallocate_ifc
 
-    subroutine climate_model_initialise_ifc( self, refgeo_PD, refgeo_init)
-      import atype_climate_model, type_reference_geometry
-      class(atype_climate_model),    intent(inout) :: self
-      type(type_reference_geometry), intent(in   ) :: refgeo_PD
-      type(type_reference_geometry), intent(in   ) :: refgeo_init
+    subroutine climate_model_initialise_ifc( self, geom, refgeo_PD, refgeo_init)
+      import atype_climate_model, atype_ice_geometry_model_data, type_reference_geometry
+      class(atype_climate_model),           intent(inout) :: self
+      class(atype_ice_geometry_model_data), intent(in   ) :: geom
+      type(type_reference_geometry),        intent(in   ) :: refgeo_PD
+      type(type_reference_geometry),        intent(in   ) :: refgeo_init
     end subroutine climate_model_initialise_ifc
 
-    subroutine climate_model_run_ifc( self, ice, time)
-      import atype_climate_model, type_ice_model, dp
-      class(atype_climate_model), intent(inout) :: self
-      type(type_ice_model),       intent(in   ) :: ice
-      real(dp),                   intent(in   ) :: time
+    subroutine climate_model_run_ifc( self, geom, time)
+      import atype_climate_model, atype_ice_geometry_model_data, dp
+      class(atype_climate_model),          intent(inout) :: self
+      class(atype_ice_geometry_model_data),intent(in   ) :: geom
+      real(dp),                            intent(in   ) :: time
     end subroutine climate_model_run_ifc
 
     subroutine climate_model_remap_ifc( self, mesh_new)
@@ -159,12 +160,13 @@ contains
 
   end subroutine climate_model_deallocate
 
-  subroutine climate_model_initialise( self, refgeo_PD, refgeo_init)
+  subroutine climate_model_initialise( self, geom, refgeo_PD, refgeo_init)
 
     ! In/output variables:
-    class(atype_climate_model),    intent(inout) :: self
-    type(type_reference_geometry), intent(in   ) :: refgeo_PD
-    type(type_reference_geometry), intent(in   ) :: refgeo_init
+    class(atype_climate_model),           intent(inout) :: self
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    type(type_reference_geometry),        intent(in   ) :: refgeo_PD
+    type(type_reference_geometry),        intent(in   ) :: refgeo_init
 
     ! Local variables:
     character(len=*), parameter :: routine_name = 'climate_model_initialise'
@@ -181,19 +183,19 @@ contains
     self%t_next = C%start_time_of_run
 
     ! Initialise stuff that is specific to each individual climate model implementation
-    call self%initialise_climate_model( refgeo_PD, refgeo_init)
+    call self%initialise_climate_model( geom, refgeo_PD, refgeo_init)
 
     ! Remove routine from call stack
     call finalise_routine( routine_name)
 
   end subroutine climate_model_initialise
 
-  subroutine climate_model_run( self, ice, time)
+  subroutine climate_model_run( self, geom, time)
 
     ! In/output variables:
-    class(atype_climate_model), intent(inout) :: self
-    type(type_ice_model),       intent(in   ) :: ice
-    real(dp),                   intent(in   ) :: time
+    class(atype_climate_model),          intent(inout) :: self
+    class(atype_ice_geometry_model_data),intent(in   ) :: geom
+    real(dp),                            intent(in   ) :: time
 
     ! Local variables:
     character(len=*), parameter :: routine_name = 'climate_model_run'
@@ -217,7 +219,7 @@ contains
         self%t_next = time + C%dt_climate
 
         ! Run stuff that is specific to each individual climate model implementation
-        call self%run_climate_model( ice, time)
+        call self%run_climate_model( geom, time)
 
       elseif (time > self%t_next) then
         ! This should not be possible
@@ -231,7 +233,7 @@ contains
       self%t_next = time + C%dt_climate
 
       ! Run stuff that is specific to each individual climate model implementation
-      call self%run_climate_model( ice, time)
+      call self%run_climate_model( geom, time)
 
     end if
 

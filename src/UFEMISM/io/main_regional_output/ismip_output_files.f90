@@ -10,7 +10,9 @@ module ismip_output_files
   use region_types, only: type_model_region
   use grid_types, only: type_grid
   use mesh_types, only: type_mesh
-  use ice_model_types, only: type_ice_model
+  use ice_model_data, only: atype_ice_model_data
+  use ice_geometry_model_data, only: atype_ice_geometry_model_data
+  use ice_velocity_model_data, only: atype_ice_velocity_model_data
   use netcdf_io_main
   use ice_mass_and_fluxes, only: calc_ISMIP_fluxes
   use remapping_main, only: map_from_mesh_vertices_to_xy_grid_2D, &
@@ -70,7 +72,7 @@ contains
     end if
 
     ! Compute the calving flux
-    call calc_ISMIP_fluxes( region%mesh, region%ice, calving_flux, gl_flux)
+    call calc_ISMIP_fluxes( region%mesh, region%ice%geom, region%ice%vel, calving_flux, gl_flux)
 
     ! Copy SMB for hybrid memory reasons
     SMB_loc( region%mesh%vi1: region%mesh%vi2) = region%SMB%SMB( region%mesh%vi1: region%mesh%vi2)
@@ -202,6 +204,10 @@ contains
     real(dp),  dimension(region%mesh%vi1:region%mesh%vi2) :: T_vav, TF
     real(dp), dimension(C%nz)                            :: d_zeta_temp
     integer                                              :: vi, ti
+    logical,  dimension(region%mesh%vi1:region%mesh%vi2) :: d_loc_logical
+    integer,  dimension(region%mesh%vi1:region%mesh%vi2) :: d_loc_int
+    real(dp), dimension(region%mesh%vi1:region%mesh%vi2) :: d_loc_dp
+    real(dp), dimension(region%mesh%ti1:region%mesh%ti2) :: d_loc_dp_b
 
     ! Add routine to path
     call init_routine( routine_name)
@@ -230,13 +236,18 @@ contains
     end do
 
     ! Print to terminal
-    if (par%primary) write(0,'(A)') '   Writing to ISMIP output files' // '...'
+    if (par%primary) write(0,'(A)') '   Writing to '// &
+      UPSY%stru%colour_string( trim( C%ismip_filename_style), 'light blue') // ' output files' // '...'
 
     ! Basic topography
-    call write_to_file( region, region%ismip_output%lithk, inputfield_a=region%ice%geom%Hi, vmin=0._dp)
-    call write_to_file( region, region%ismip_output%orog,  inputfield_a=region%ice%geom%Hs, vmin=0._dp)
-    call write_to_file( region, region%ismip_output%topg,  inputfield_a=region%ice%geom%Hb)
-    call write_to_file( region, region%ismip_output%base,  inputfield_a=region%ice%geom%Hib)
+    d_loc_dp = region%ice%geom%Hi( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%lithk, inputfield_a=d_loc_dp, vmin=0._dp)
+    d_loc_dp = region%ice%geom%Hs( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%orog,  inputfield_a=d_loc_dp, vmin=0._dp)
+    d_loc_dp = region%ice%geom%Hb( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%topg,  inputfield_a=d_loc_dp)
+    d_loc_dp = region%ice%geom%Hib( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%base,  inputfield_a=d_loc_dp)
 
     ! Geothermal heat flux
     call write_to_file_grid_FL( region, region%ismip_output%hfgeoubed, vmin=0._dp)
@@ -254,14 +265,22 @@ contains
     region%ismip_output%dlithkdt%accum( region%mesh%vi1:region%mesh%vi2) = region%ice%geom%Hi( region%mesh%vi1:region%mesh%vi2)
 
     ! Velocities
-    call write_to_file( region, region%ismip_output%xvelsurf, inputfield_b=region%ice%u_surf_b / sec_per_year)
-    call write_to_file( region, region%ismip_output%yvelsurf, inputfield_b=region%ice%v_surf_b / sec_per_year)
-    call write_to_file( region, region%ismip_output%zvelsurf, inputfield_a=region%ice%w_3D( :, 1) / sec_per_year)
-    call write_to_file( region, region%ismip_output%xvelbase, inputfield_b=region%ice%u_base_b / sec_per_year)
-    call write_to_file( region, region%ismip_output%yvelbase, inputfield_b=region%ice%v_base_b / sec_per_year)
-    call write_to_file( region, region%ismip_output%zvelbase, inputfield_a=region%ice%w_3D( :, C%nz) / sec_per_year)
-    call write_to_file( region, region%ismip_output%xvelmean, inputfield_b=region%ice%u_vav_b  / sec_per_year)
-    call write_to_file( region, region%ismip_output%yvelmean, inputfield_b=region%ice%v_vav_b  / sec_per_year)
+    d_loc_dp_b = region%ice%vel%u_surf_b( region%mesh%ti1:region%mesh%ti2) / sec_per_year
+    call write_to_file( region, region%ismip_output%xvelsurf, inputfield_b=d_loc_dp_b)
+    d_loc_dp_b = region%ice%vel%v_surf_b( region%mesh%ti1:region%mesh%ti2) / sec_per_year
+    call write_to_file( region, region%ismip_output%yvelsurf, inputfield_b=d_loc_dp_b)
+    d_loc_dp = region%ice%vel%w_3D( region%mesh%vi1:region%mesh%vi2,1) / sec_per_year
+    call write_to_file( region, region%ismip_output%zvelsurf, inputfield_a=d_loc_dp)
+    d_loc_dp_b = region%ice%vel%u_base_b( region%mesh%ti1:region%mesh%ti2) / sec_per_year
+    call write_to_file( region, region%ismip_output%xvelbase, inputfield_b=d_loc_dp_b)
+    d_loc_dp_b = region%ice%vel%v_base_b( region%mesh%ti1:region%mesh%ti2) / sec_per_year
+    call write_to_file( region, region%ismip_output%yvelbase, inputfield_b=d_loc_dp_b)
+    d_loc_dp = region%ice%vel%w_3D( region%mesh%vi1:region%mesh%vi2,region%mesh%nz) / sec_per_year
+    call write_to_file( region, region%ismip_output%zvelbase, inputfield_a=d_loc_dp)
+    d_loc_dp_b = region%ice%vel%u_vav_b( region%mesh%ti1:region%mesh%ti2) / sec_per_year
+    call write_to_file( region, region%ismip_output%xvelmean, inputfield_b=d_loc_dp_b)
+    d_loc_dp_b = region%ice%vel%v_vav_b( region%mesh%ti1:region%mesh%ti2) / sec_per_year
+    call write_to_file( region, region%ismip_output%yvelmean, inputfield_b=d_loc_dp_b)
 
     ! Temperatures
     call write_to_file( region, region%ismip_output%litemptop, inputfield_a=region%ice%Ti( :, 1), mask_a=mask_ice_a)
@@ -278,8 +297,10 @@ contains
       end if
     end do
     call write_to_file( region, region%ismip_output%litempavg,    inputfield_a=T_vav)
-    call write_to_file( region, region%ismip_output%litempbotgr,  inputfield_a=region%ice%Ti( :, C%nz), mask_a=region%ice%geom%mask_grounded_ice)
-    call write_to_file( region, region%ismip_output%litempbotfl,  inputfield_a=region%ice%Ti( :, C%nz), mask_a=region%ice%geom%mask_floating_ice)
+    d_loc_logical = region%ice%geom%mask_grounded_ice( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%litempbotgr,  inputfield_a=region%ice%Ti( :, C%nz), mask_a=d_loc_logical)
+    d_loc_logical = region%ice%geom%mask_floating_ice( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%litempbotfl,  inputfield_a=region%ice%Ti( :, C%nz), mask_a=d_loc_logical)
 
     ! Basal drag
     call write_to_file( region, region%ismip_output%strbasemag, inputfield_b=region%ice%basal_shear_stress, mask_b=mask_gr_b, vmin=0._dp)
@@ -290,10 +311,12 @@ contains
     call write_to_file_grid_FL( region, region%ismip_output%lifmassbf)
 
     ! Area fractions
-    call write_to_file( region, region%ismip_output%sftgif, inputfield_a=region%ice%geom%fraction_margin, vmin=0._dp, vmax=1._dp)
-    call write_to_file( region, region%ismip_output%sftgrf, inputfield_a=region%ice%geom%fraction_gr, vmin=0._dp, vmax=1._dp)
-    call write_to_file( region, region%ismip_output%sftflf, inputfield_a=region%ice%geom%fraction_margin - region%ice%geom%fraction_gr, &
-      vmin=0._dp, vmax=1._dp)
+    d_loc_dp = region%ice%geom%fraction_gr( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%sftgif, inputfield_a=d_loc_dp, vmin=0._dp, vmax=1._dp)
+    d_loc_dp = region%ice%geom%fraction_gr( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%sftgrf, inputfield_a=d_loc_dp, vmin=0._dp, vmax=1._dp)
+    d_loc_dp = region%ice%geom%fraction_margin( region%mesh%vi1:region%mesh%vi2) - region%ice%geom%fraction_gr( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%sftflf, inputfield_a=d_loc_dp, vmin=0._dp, vmax=1._dp)
 
     ! Other stuff
     do vi = region%mesh%vi1, region%mesh%vi2
@@ -304,15 +327,20 @@ contains
         TF( vi) = region%ocean%T_draft( vi) - region%ocean%T_freezing_point( vi)
       end if
     end do
-    call write_to_file( region, region%ismip_output%tfbase, inputfield_a=TF, mask_a=region%ice%geom%mask_floating_ice)
+    d_loc_logical = region%ice%geom%mask_floating_ice( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%tfbase, inputfield_a=TF, mask_a=d_loc_logical)
 
     ! === Scalars ===
 
     ! State with provided inputfields and optional masks
-    call write_to_file( region, region%ismip_output%lim, region%ice%geom%Hi * ice_density)
-    call write_to_file( region, region%ismip_output%limnsw, max(0._dp,region%ice%geom%TAF) * ice_density, mask=mask_ice_a)
-    call write_to_file( region, region%ismip_output%iareagr, region%ice%geom%fraction_gr, mask=mask_ice_a)
-    call write_to_file( region, region%ismip_output%iareafl, 1._dp-region%ice%geom%fraction_gr, mask=mask_ice_a)
+    d_loc_dp = region%ice%geom%Hi( region%mesh%vi1:region%mesh%vi2) * ice_density
+    call write_to_file( region, region%ismip_output%lim, d_loc_dp)
+    d_loc_dp = max( 0._dp, region%ice%geom%TAF( region%mesh%vi1:region%mesh%vi2)) * ice_density
+    call write_to_file( region, region%ismip_output%limnsw, d_loc_dp, mask=mask_ice_a)
+    d_loc_dp = region%ice%geom%fraction_gr( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%iareagr, d_loc_dp, mask=mask_ice_a)
+    d_loc_dp = 1._dp - region%ice%geom%fraction_gr( region%mesh%vi1:region%mesh%vi2)
+    call write_to_file( region, region%ismip_output%iareafl, d_loc_dp, mask=mask_ice_a)
 
     ! Fluxes
     call write_to_file( region, region%ismip_output%tendacabf)
@@ -793,7 +821,7 @@ contains
     res_str = adjustl(res_str)
 
     ! Make a title
-    title = 'ISMIP7 output by UFEMISM - ' // trim(field%name)
+    title = trim(C%ismip_filename_style) // ' output by UFEMISM - ' // trim(field%name)
 
     ! Add attributes
     call add_attribute_char( field%filename, ncid, NF90_GLOBAL, 'title', trim(title))
@@ -862,7 +890,7 @@ contains
     res_str = adjustl(res_str)
 
     ! Make a title
-    title = 'ISMIP7 output by UFEMISM - ' // trim(scalar%name)
+    title = trim(C%ismip_filename_style) // ' output by UFEMISM - ' // trim(scalar%name)
 
     ! Add attributes
     call add_attribute_char( scalar%filename, ncid, NF90_GLOBAL, 'title', trim(title))
@@ -917,7 +945,14 @@ contains
     region%ismip_output%t_curr = C%start_time_of_run
 
     ! Define the name of the subfolder
-    region%ismip_output%folder = trim( C%output_dir) // trim(C%ismip_counter) // '/'
+    select case (C%ismip_filename_style) 
+      case default
+        call crash ('unknown ismip_filename_style "' // trim(C%ismip_filename_style) // '"')
+      case ('ISMIP7')
+        region%ismip_output%folder = trim( C%output_dir) // trim(C%ismip_counter) // '/'
+      case ('TIPMIP')
+        region%ismip_output%folder = trim( C%output_dir) // trim(C%ismip_scenario_name) // '/'
+    end select
 
     ! Basic topography
     call initialise_ISMIP_field( region, region%ismip_output%lithk, 'lithk', 'Ice thickness', 'land_ice_thickness', 'm', 'ST')
@@ -1054,16 +1089,25 @@ contains
 
     ! Convert grid resolution and start/end times to string.
     ! Offset end_year of 1 year to indicate last completed year
-    write(start_year, '(I4)') int(C%start_time_of_run)
-    write(end_year, '(I4)') int(C%end_time_of_run - 1)
+    write(start_year, '(I4.4)') int(C%start_time_of_run)
+    write(end_year, '(I4.4)') int(C%end_time_of_run - 1)
 
     ! Define the filename for this field
-    field%filename = trim( region%ismip_output%folder) // trim(field%name) // '_' // &
-      trim(region%ismip_output%IS_name) // '_' // trim(C%ismip_group_name) // '_' // &
-      trim(C%ismip_model_name) // '_' // trim(C%ismip_member_id) // '_' // &
-      trim(C%ismip_esm_name) // '_' // trim(C%ismip_forcing_member_id) // '_' // &
-      trim(C%ismip_scenario_name) // '_' // trim(C%ismip_counter) // '_' // &
-      trim(start_year) // '-' // trim(end_year) // '.nc'
+    select case (C%ismip_filename_style)
+      case default
+        call crash ('unknown ismip_filename_style "' // trim(C%ismip_filename_style) // '"')
+      case ('ISMIP7')
+        field%filename = trim( region%ismip_output%folder) // trim(field%name) // '_' // &
+          trim(region%ismip_output%IS_name) // '_' // trim(C%ismip_group_name) // '_' // &
+          trim(C%ismip_model_name) // '_' // trim(C%ismip_member_id) // '_' // &
+          trim(C%ismip_esm_name) // '_' // trim(C%ismip_forcing_member_id) // '_' // &
+          trim(C%ismip_scenario_name) // '_' // trim(C%ismip_counter) // '_' // &
+          trim(start_year) // '-' // trim(end_year) // '.nc'
+      case ('TIPMIP')
+        field%filename = trim( region%ismip_output%folder) // trim(field%name) // '_' // &
+          trim(region%ismip_output%IS_name) // '_' // trim(C%ismip_group_name) // '_' // &
+          trim(C%ismip_model_name) // '_' // trim(C%ismip_scenario_name) // '.nc'
+    end select
 
     ! Allocate fields for accumulation during each timestep for flux fields
     if (field%fieldtype == 'FL') then
@@ -1105,16 +1149,25 @@ contains
 
     ! Convert start/end times to string
     ! Offset end_year of 1 year to indicate last completed year
-    write(start_year, '(I4)') int(C%start_time_of_run)
-    write(end_year, '(I4)') int(C%end_time_of_run - 1)
+    write(start_year, '(I4.4)') int(C%start_time_of_run)
+    write(end_year, '(I4.4)') int(C%end_time_of_run - 1)
 
     ! Define the filename for this field
-    scalar%filename = trim( region%ismip_output%folder) // trim(scalar%name) // '_' // &
-      trim(region%ismip_output%IS_name) // '_' // trim(C%ismip_group_name) // '_' // &
-      trim(C%ismip_model_name) // '_' // trim(C%ismip_member_id) // '_' // &
-      trim(C%ismip_esm_name) // '_' // trim(C%ismip_forcing_member_id) // '_' // &
-      trim(C%ismip_scenario_name) // '_' // trim(C%ismip_counter) // '_' // &
-      trim(start_year) // '-' // trim(end_year) // '.nc'
+    select case (C%ismip_filename_style)
+      case default
+        call crash ('unknown ismip_filename_style "' // trim(C%ismip_filename_style) // '"')
+      case ('ISMIP7')
+        scalar%filename = trim( region%ismip_output%folder) // trim(scalar%name) // '_' // &
+          trim(region%ismip_output%IS_name) // '_' // trim(C%ismip_group_name) // '_' // &
+          trim(C%ismip_model_name) // '_' // trim(C%ismip_member_id) // '_' // &
+          trim(C%ismip_esm_name) // '_' // trim(C%ismip_forcing_member_id) // '_' // &
+          trim(C%ismip_scenario_name) // '_' // trim(C%ismip_counter) // '_' // &
+          trim(start_year) // '-' // trim(end_year) // '.nc'
+      case ('TIPMIP')
+        scalar%filename = trim( region%ismip_output%folder) // trim(scalar%name) // '_' // &
+          trim(region%ismip_output%IS_name) // '_' // trim(C%ismip_group_name) // '_' // &
+          trim(C%ismip_model_name) // '_' // trim(C%ismip_scenario_name) // '.nc'
+    end select
 
     ! Initialise
     if ((scalar%fieldtype == 'FL')) then
@@ -1129,13 +1182,13 @@ contains
 
   end subroutine initialise_ISMIP_field_scalar
 
-  subroutine remap_ISMIP_output( mesh_old, mesh_new, ice, ismip_output)
+  subroutine remap_ISMIP_output( mesh_old, mesh_new, geom, ismip_output)
     ! Reallocate the accumulated fields and redefine Hi_prev
 
-    type(type_mesh),                   intent(in   ) :: mesh_old
-    type(type_mesh),                   intent(in   ) :: mesh_new
-    type(type_ice_model),              intent(in   ) :: ice
-    type(type_ismip_output),      intent(inout) :: ismip_output
+    type(type_mesh),                      intent(in   ) :: mesh_old
+    type(type_mesh),                      intent(in   ) :: mesh_new
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    type(type_ismip_output),              intent(inout) :: ismip_output
 
     ! Local variables
     character(len=1024), parameter :: routine_name = 'remap_ISMIP_output'
@@ -1152,7 +1205,7 @@ contains
     call reallocate_bounds( ismip_output%dlithkdt%accum, mesh_new%vi1, mesh_new%vi2)
 
     ! Use accum to store current Hi for dHidt
-    ismip_output%dlithkdt%accum = ice%geom%Hi
+    ismip_output%dlithkdt%accum( mesh_new%vi1:mesh_new%vi2) = geom%Hi( mesh_new%vi1:mesh_new%vi2)
 
     ! Finalise routine path
     call finalise_routine( routine_name)

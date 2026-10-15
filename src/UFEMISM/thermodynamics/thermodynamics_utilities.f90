@@ -10,7 +10,9 @@ MODULE thermodynamics_utilities
   USE model_configuration                                    , ONLY: C
   USE parameters
   USE mesh_types                                             , ONLY: type_mesh
-  USE ice_model_types                                        , ONLY: type_ice_model
+  use ice_model_data, only: atype_ice_model_data
+  use ice_geometry_model_data, only: atype_ice_geometry_model_data
+  use ice_velocity_model_data, only: atype_ice_velocity_model_data
   USE BMB_model_types                                        , ONLY: type_BMB_model
   USE climate_model_types                                    , ONLY: type_climate_model
   use CSR_matrix_vector_multiplication                       , only: multiply_CSR_matrix_with_vector_local
@@ -18,13 +20,14 @@ MODULE thermodynamics_utilities
   use mesh_disc_apply_operators, only: ddx_a_b_3D, ddy_a_b_3D
   use plane_geometry, only: cross2
   use mpi_distributed_memory, only: gather_to_all
+  use mpi_distributed_shared_memory, only: gather_dist_shared_to_all
   use checksum_mod, only: checksum
 
   IMPLICIT NONE
 
 CONTAINS
 
-  SUBROUTINE calc_strain_heating( mesh, ice)
+  SUBROUTINE calc_strain_heating( mesh, ice, geom, vel)
     ! Calculate internal heating due to strain rates
     !
     ! Bueler and Brown (2009), Eq. 8 (though they use Sigma instead of Phi):
@@ -56,8 +59,10 @@ CONTAINS
     IMPLICIT NONE
 
     ! In- and output variables
-    TYPE(type_mesh),                     INTENT(IN)    :: mesh
-    TYPE(type_ice_model),                INTENT(INOUT) :: ice
+    TYPE(type_mesh),                      INTENT(IN)    :: mesh
+    class(atype_ice_model_data),          INTENT(INOUT) :: ice
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    class(atype_ice_velocity_model_data), intent(in   ) :: vel
 
     ! Local variables:
     CHARACTER(LEN=256), PARAMETER                      :: routine_name = 'calc_strain_heating'
@@ -71,16 +76,16 @@ CONTAINS
     DO k = 1, C%nz
 
       ! No ice means no heating
-      IF (ice%geom%Hi( vi) < 0.1_dp) THEN
+      IF (geom%Hi( vi) < 0.1_dp) THEN
         ice%internal_heating( vi,k) = 0._dp
         CYCLE
       END IF
 
       ! Calculate the total strain rate D
-      D = SQRT( 0.5_dp * (ice%du_dx_3D( vi,k)**2 + ice%dv_dy_3D( vi,k)**2 + ice%dw_dz_3D( vi,k)**2 + &
-                0.5_dp * (ice%du_dy_3D( vi,k)    + ice%dv_dx_3D( vi,k))**2 + &
-                0.5_dp * (ice%du_dz_3D( vi,k)    + ice%dw_dx_3D( vi,k))**2 + &
-                0.5_dp * (ice%dv_dz_3D( vi,k)    + ice%dw_dy_3D( vi,k))**2 ))
+      D = SQRT( 0.5_dp * (vel%du_dx_3D( vi,k)**2 + vel%dv_dy_3D( vi,k)**2 + vel%dw_dz_3D( vi,k)**2 + &
+                0.5_dp * (vel%du_dy_3D( vi,k)    + vel%dv_dx_3D( vi,k))**2 + &
+                0.5_dp * (vel%du_dz_3D( vi,k)    + vel%dw_dx_3D( vi,k))**2 + &
+                0.5_dp * (vel%dv_dz_3D( vi,k)    + vel%dw_dy_3D( vi,k))**2 ))
 
       ! Calculate the strain heating rate Phi
       ice%internal_heating( vi,k) = 2._dp * ice%A_flow( vi,k)**(-1._dp / C%Glens_flow_law_exponent) * D**(1._dp / C%Glens_flow_law_exponent + 1._dp)
@@ -95,14 +100,16 @@ CONTAINS
 
   END SUBROUTINE calc_strain_heating
 
-  SUBROUTINE calc_frictional_heating( mesh, ice)
+  SUBROUTINE calc_frictional_heating( mesh, ice, geom, vel)
     ! Calculate frictional heating at the base due to sliding
 
     IMPLICIT NONE
 
     ! In- and output variables
-    TYPE(type_mesh),                     INTENT(IN)    :: mesh
-    TYPE(type_ice_model),                INTENT(INOUT) :: ice
+    TYPE(type_mesh),                      INTENT(IN)    :: mesh
+    class(atype_ice_model_data),          INTENT(INOUT) :: ice
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    class(atype_ice_velocity_model_data), intent(in   ) :: vel
 
     ! Local variables:
     CHARACTER(LEN=256), PARAMETER                      :: routine_name = 'calc_frictional_heating'
@@ -120,8 +127,8 @@ CONTAINS
 
     ! Calculate frictional heating
     DO vi = mesh%vi1, mesh%vi2
-      IF (ice%geom%mask_grounded_ice( vi)) THEN
-        ice%frictional_heating( vi) = ice%basal_friction_coefficient( vi) * ice%uabs_base( vi)
+      IF (geom%mask_grounded_ice( vi)) THEN
+        ice%frictional_heating( vi) = ice%basal_friction_coefficient( vi) * vel%uabs_base( vi)
       ELSE
         ice%frictional_heating( vi) = 0._dp
       END IF
@@ -141,7 +148,7 @@ CONTAINS
 
     ! In/output variables
     TYPE(type_mesh),                     INTENT(IN)    :: mesh
-    TYPE(type_ice_model),                INTENT(INOUT) :: ice
+    class(atype_ice_model_data),         INTENT(INOUT) :: ice
 
     ! Local variables:
     CHARACTER(LEN=256), PARAMETER                      :: routine_name = 'calc_heat_capacity'
@@ -180,7 +187,7 @@ CONTAINS
 
     ! In/output variables
     TYPE(type_mesh),                     INTENT(IN)    :: mesh
-    TYPE(type_ice_model),                INTENT(INOUT) :: ice
+    class(atype_ice_model_data),         INTENT(INOUT) :: ice
 
     ! Local variables:
     CHARACTER(LEN=256), PARAMETER                      :: routine_name = 'calc_thermal_conductivity'
@@ -212,14 +219,15 @@ CONTAINS
 
   END SUBROUTINE calc_thermal_conductivity
 
-  SUBROUTINE calc_pressure_melting_point( mesh, ice)
+  SUBROUTINE calc_pressure_melting_point( mesh, ice, geom)
     ! Calculate the pressure melting point of the ice according to Huybrechts (1992)
 
     IMPLICIT NONE
 
     ! In/output variables
-    TYPE(type_mesh),                     INTENT(IN)    :: mesh
-    TYPE(type_ice_model),                INTENT(INOUT) :: ice
+    TYPE(type_mesh),                      INTENT(IN)    :: mesh
+    class(atype_ice_model_data),          INTENT(INOUT) :: ice
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
 
     ! Local variables:
     CHARACTER(LEN=256), PARAMETER                      :: routine_name = 'calc_pressure_melting_point'
@@ -230,7 +238,7 @@ CONTAINS
 
     DO vi = mesh%vi1, mesh%vi2
     DO k = 1, mesh%nz
-      ice%Ti_pmp( vi,k) = T0 - Clausius_Clapeyron_gradient * ice%geom%Hi_eff( vi) * mesh%zeta( k)
+      ice%Ti_pmp( vi,k) = T0 - Clausius_Clapeyron_gradient * geom%Hi_eff( vi) * mesh%zeta( k)
     END DO
     END DO
 
@@ -248,7 +256,7 @@ CONTAINS
 
     ! In/output variables
     TYPE(type_mesh),                     INTENT(IN)    :: mesh
-    TYPE(type_ice_model),                INTENT(INOUT) :: ice
+    class(atype_ice_model_data),         INTENT(INOUT) :: ice
 
     ! Local variables:
     CHARACTER(LEN=256), PARAMETER                      :: routine_name = 'calc_homologous_temperature'
@@ -268,7 +276,7 @@ CONTAINS
 
   END SUBROUTINE calc_homologous_temperature
 
-  SUBROUTINE replace_Ti_with_robin_solution( mesh, ice, climate, SMB, Ti, vi)
+  SUBROUTINE replace_Ti_with_robin_solution( mesh, ice, geom, climate, SMB, Ti, vi)
     ! This function calculates for one horizontal grid point the temperature profiles
     ! using the surface temperature and the geothermal heat flux as boundary conditions.
     ! See Robin solution in: Cuffey & Paterson 2010, 4th ed, chapter 9, eq. (9.13) - (9.22).
@@ -277,7 +285,8 @@ CONTAINS
 
     ! In/output variables:
     TYPE(type_mesh),                                INTENT(IN)    :: mesh
-    TYPE(type_ice_model),                           INTENT(INOUT) :: ice
+    class(atype_ice_model_data),                    INTENT(INOUT) :: ice
+    class(atype_ice_geometry_model_data),           intent(in   ) :: geom
     TYPE(type_climate_model),                       INTENT(IN)    :: climate
     class(atype_SMB_model),                         intent(in   ) :: SMB
     REAL(dp), DIMENSION(mesh%vi1:mesh%vi2,mesh%nz), INTENT(INOUT) :: Ti
@@ -305,31 +314,31 @@ CONTAINS
 
     Ts = MIN( T0, SUM( climate%T2m( vi,:)) / REAL( SIZE( climate%T2m,2),dp))
 
-    IF (ice%geom%Hi_eff( vi) > C%Hi_min_thermo) THEN
+    IF (geom%Hi_eff( vi) > C%Hi_min_thermo) THEN
       ! This vertex has enough ice to have a noticeable temperature profile
 
-      IF (ice%geom%mask_grounded_ice( vi)) THEN
+      IF (geom%mask_grounded_ice( vi)) THEN
         ! This vertex has more than 1m of grounded ice
 
         IF (SMB%SMB( vi) > 0._dp) THEN
           ! The Robin solution can be used to estimate the subsurface temperature profile in an accumulation area
 
-          thermal_length_scale = SQRT( 2._dp * thermal_diffusivity_Robin * ice%geom%Hi_eff( vi) / SMB%SMB( vi))
+          thermal_length_scale = SQRT( 2._dp * thermal_diffusivity_Robin * geom%Hi_eff( vi) / SMB%SMB( vi))
           DO k = 1, C%nz
-            distance_above_bed = (1._dp - mesh%zeta( k)) * ice%geom%Hi_eff( vi)
+            distance_above_bed = (1._dp - mesh%zeta( k)) * geom%Hi_eff( vi)
             erf1 = erf( distance_above_bed / thermal_length_scale)
-            erf2 = erf( ice%geom%Hi_eff( vi) / thermal_length_scale)
+            erf2 = erf( geom%Hi_eff( vi) / thermal_length_scale)
             Ti( vi,k) = Ts + SQRT(pi) / 2._dp * thermal_length_scale * bottom_temperature_gradient_Robin * (erf1 - erf2)
           END DO
 
         ELSE ! IF (SMB%SMB( vi) > 0._dp) THEN
 
           ! Ablation area: use linear temperature profile from Ts to (offset below) T_pmp
-          Ti( vi,:) = Ts + ((T0 - Clausius_Clapeyron_gradient * ice%geom%Hi_eff( vi)) - Ts) * mesh%zeta
+          Ti( vi,:) = Ts + ((T0 - Clausius_Clapeyron_gradient * geom%Hi_eff( vi)) - Ts) * mesh%zeta
 
         END IF ! IF (SMB%SMB( vi) > 0._dp) THEN
 
-      ELSEIF( ice%geom%mask_floating_ice( vi)) THEN
+      ELSEIF( geom%mask_floating_ice( vi)) THEN
         ! This vertex has more than 1m of floating ice
         ! Set a linear profile between T_surf and Ti_pmp_base
 
@@ -337,12 +346,12 @@ CONTAINS
 
       END IF
 
-    ELSE ! IF (ice%geom%Hi_eff( vi) > C%Hi_min_thermo) THEN
+    ELSE ! IF (geom%Hi_eff( vi) > C%Hi_min_thermo) THEN
       ! No (significant) ice present; set temperature to annual mean surface temperature
 
       Ti( vi,:) = Ts
 
-    END IF ! IF (ice%geom%Hi_eff( vi) > C%Hi_min_thermo) THEN
+    END IF ! IF (geom%Hi_eff( vi) > C%Hi_min_thermo) THEN
 
     ! Safety: limit temperatures to the pressure melting point
     DO k = 1, mesh%nz
@@ -351,15 +360,17 @@ CONTAINS
 
   END SUBROUTINE replace_Ti_with_robin_solution
 
-  SUBROUTINE calc_upwind_heat_flux_derivatives( mesh, ice, u_times_dTdxp_upwind, v_times_dTdyp_upwind)
+  SUBROUTINE calc_upwind_heat_flux_derivatives( mesh, ice, geom, vel, u_times_dTdxp_upwind, v_times_dTdyp_upwind)
     ! Calculate upwind heat flux derivatives at vertex vi, vertical layer k
 
     IMPLICIT NONE
 
     ! In/output variables:
-    TYPE(type_mesh),                                INTENT(IN)  :: mesh
-    TYPE(type_ice_model),                           INTENT(IN)  :: ice
-    REAL(dp), DIMENSION(mesh%vi1:mesh%vi2,mesh%nz), INTENT(OUT) :: u_times_dTdxp_upwind, v_times_dTdyp_upwind
+    TYPE(type_mesh),                                INTENT(IN   ) :: mesh
+    class(atype_ice_model_data),                    INTENT(IN   ) :: ice
+    class(atype_ice_geometry_model_data),           intent(in   ) :: geom
+    class(atype_ice_velocity_model_data),           intent(in   ) :: vel
+    REAL(dp), DIMENSION(mesh%vi1:mesh%vi2,mesh%nz), INTENT(  OUT) :: u_times_dTdxp_upwind, v_times_dTdyp_upwind
 
     ! Local variables:
     CHARACTER(LEN=256), PARAMETER                               :: routine_name = 'calc_upwind_heat_flux_derivatives'
@@ -381,22 +392,22 @@ CONTAINS
     CALL ddy_a_b_3D( mesh, ice%Ti, dTi_dyp_3D_b)
 
     ! Gather full velocity fields
-    CALL gather_to_all( ice%u_3D_b  , u_3D_b_tot      )
-    CALL gather_to_all( ice%v_3D_b  , v_3D_b_tot      )
+    CALL gather_dist_shared_to_all( mesh%pai_Tri, mesh%nz, vel%u_3D_b  , u_3D_b_tot      )
+    CALL gather_dist_shared_to_all( mesh%pai_Tri, mesh%nz, vel%v_3D_b  , v_3D_b_tot      )
     CALL gather_to_all( dTi_dxp_3D_b, dTi_dxp_3D_b_tot)
     CALL gather_to_all( dTi_dyp_3D_b, dTi_dyp_3D_b_tot)
 
     DO vi = mesh%vi1, mesh%vi2
 
       ! Exception for the trivial case of no ice
-      IF (ice%geom%Hi( vi) < 1._dp) THEN
+      IF (geom%Hi( vi) < 1._dp) THEN
         u_times_dTdxp_upwind( vi,:) = 0._dp
         v_times_dTdyp_upwind( vi,:) = 0._dp
         CYCLE
       END IF
 
       ! The upwind velocity vector
-      u_upwind = [-ice%u_vav( vi), -ice%v_vav( vi)]
+      u_upwind = [-vel%u_vav( vi), -vel%v_vav( vi)]
 
       ! Find the upwind triangle
       ti_upwind = 0
@@ -451,14 +462,15 @@ CONTAINS
 
   END SUBROUTINE calc_upwind_heat_flux_derivatives
 
-  subroutine calc_grounded_basal_melt_rates_from_temp(ice, mesh, BMB)
+  subroutine calc_grounded_basal_melt_rates_from_temp( mesh, ice, geom, BMB)
     ! Computes basal melt under grounded ice (BMB_sheet), based on the same method as PISM
     ! Following update_impl in EnthalpyModel.cc, L300-328, based on Eq. 47 of Aschwanden et al. (2012; JoG)
 
     ! In- and output variables
-    TYPE(type_mesh),                     INTENT(IN)    :: mesh
-    TYPE(type_ice_model),                INTENT(IN)    :: ice
-    TYPE(type_BMB_model),                INTENT(INOUT) :: BMB
+    TYPE(type_mesh),                      INTENT(IN)    :: mesh
+    class(atype_ice_model_data),          INTENT(IN)    :: ice
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    TYPE(type_BMB_model),                 INTENT(INOUT) :: BMB
 
     ! Local variables:
     CHARACTER(LEN=256), PARAMETER          :: routine_name = 'calc_grounded_basal_melt_rates_from_temp'
@@ -472,12 +484,12 @@ CONTAINS
 
     DO vi = mesh%vi1, mesh%vi2
     ! we only compute BMB over grounded ice, and where it is at PMP
-    if (ice%geom%mask_grounded_ice(vi) .OR. ice%geom%mask_gl_gr( vi)) then
+    if (geom%mask_grounded_ice(vi) .OR. geom%mask_gl_gr( vi)) then
       if (ice%Ti_hom( vi) >= 0.0_dp) then
 
           d_zeta_temp = ice%Ti( vi, :)                                                            ! Extract vertical array of Ti
           call multiply_CSR_matrix_with_vector_local( mesh%M_ddzeta_k_k_1D, d_zeta_temp, dTdzeta) ! Compute the vertical gradients dT/dzeta
-          dTdz = -1._dp / ice%geom%Hi( vi) * dTdzeta( mesh%nz)                                         ! Extract actual vertical gradient at bottom in dT/dz
+          dTdz = -1._dp / geom%Hi( vi) * dTdzeta( mesh%nz)                                         ! Extract actual vertical gradient at bottom in dT/dz
           hf_up = -1._dp * ice%Ki( vi, C%nz) * dTdz                                               ! computes upwards heat flux
           L_base = L_fusion + (cp_water - cp_ice) * (ice%Ti( vi, C%nz) - 273.15_dp)               ! computes latent heat of bottom ice layer
 

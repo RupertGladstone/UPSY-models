@@ -20,7 +20,7 @@ module ut_tracer_tracking
 !   use tracer_tracking_model_types, only: type_tracer_tracking_model_particles, type_map_particles_to_mesh
 !   use tracer_tracking_model_particles, only: calc_particle_zeta, interpolate_3d_velocities_to_3D_point, &
 !     calc_particles_to_mesh_map, initialise_tracer_tracking_model_particles, add_particle
-!   use ice_model_types, only: type_ice_model
+!   use ice_model_data, only: atype_ice_model_data
 !   use ice_model_memory, only: allocate_ice_model
 !   use reference_geometries_main, only: calc_idealised_geometry
 
@@ -398,7 +398,7 @@ module ut_tracer_tracking
 !     character(len=1024), parameter             :: routine_name = 'test_particle_movement_slab_on_a_slope'
 !     character(len=1024), parameter             :: test_name_local = 'particle_movement_slab_on_a_slope'
 !     character(len=1024)                        :: test_name
-!     type(type_ice_model)                       :: ice
+!     class(atype_ice_model_data)                       :: ice
 !     integer                                    :: vi,k,i,j,ip
 !     character(len=1024)                        :: choice_refgeo_idealised
 !     real(dp), parameter                        :: theta = -0.01_dp
@@ -427,7 +427,7 @@ module ut_tracer_tracking
 
 !     ! choice_refgeo_idealised = 'slabonaslope'
 !     ! C%refgeo_idealised_slabonaslope_Hi = 1000._dp
-!     ! C%refgeo_idealised_slabonaslope_dhdx = tan( theta * pi / 180._dp)
+!     ! C%refgeo_idealised_slabonaslope_dhdx = tand( theta)
 
 !     ! do vi = mesh%vi1, mesh%vi2
 !     !   call calc_idealised_geometry( mesh%V( vi,1), mesh%V( vi,2), &
@@ -439,12 +439,12 @@ module ut_tracer_tracking
 !     ! ! Ice flows parallel to the surface, with the speed increasing from
 !     ! ! zero at the base to u_abs at the surface.
 
-!     ! ice%v_3D_b = 0._dp
-!     ! u_surf = uabs * cos( theta * pi / 180._dp)
-!     ! w_surf = uabs * sin( theta * pi / 180._dp)
+!     ! ice%vel%v_3D_b = 0._dp
+!     ! u_surf = uabs * cosd( theta)
+!     ! w_surf = uabs * sind( theta)
 !     ! do k = 1, mesh%nz
-!     !   ice%u_3D_b( :,k) = u_surf * (1._dp - mesh%zeta( k))
-!     !   ice%w_3D  ( :,k) = w_surf * (1._dp - mesh%zeta( k))
+!     !   ice%vel%u_3D_b( :,k) = u_surf * (1._dp - mesh%zeta( k))
+!     !   ice%vel%w_3D  ( :,k) = w_surf * (1._dp - mesh%zeta( k))
 !     ! end do
 
 !     ! xmin    = mesh%xmin * 0.95_dp
@@ -526,7 +526,7 @@ module ut_tracer_tracking
 !     character(len=1024), parameter             :: routine_name = 'test_particle_movement_vortex'
 !     character(len=1024), parameter             :: test_name_local = 'particle_movement_vortex'
 !     character(len=1024)                        :: test_name
-!     type(type_ice_model)                       :: ice
+!     class(atype_ice_model_data)                       :: ice
 !     integer                                    :: ti,k,i,j,ip
 !     real(dp), parameter                        :: Hi = 1000._dp
 !     real(dp), parameter                        :: time_rev_surf = 1000._dp
@@ -564,13 +564,13 @@ module ut_tracer_tracking
 !     ! ! infinity years at the base (rotation speed decreases
 !     ! ! linearly with depth)
 
-!     ! ice%w_3D = 0._dp
+!     ! ice%vel%w_3D = 0._dp
 !     ! do ti = mesh%ti1, mesh%ti2
 !     ! do k = 1, mesh%nz
 !     !   x = mesh%Tricc( ti,1)
 !     !   y = mesh%Tricc( ti,2)
-!     !   ice%u_3D_b( ti,k) = -y * 2_dp * pi / time_rev_surf * (1._dp - mesh%zeta( k))
-!     !   ice%v_3D_b( ti,k) =  x * 2_dp * pi / time_rev_surf * (1._dp - mesh%zeta( k))
+!     !   ice%vel%u_3D_b( ti,k) = -y * 2_dp * pi / time_rev_surf * (1._dp - mesh%zeta( k))
+!     !   ice%vel%v_3D_b( ti,k) =  x * 2_dp * pi / time_rev_surf * (1._dp - mesh%zeta( k))
 !     ! end do
 !     ! end do
 
