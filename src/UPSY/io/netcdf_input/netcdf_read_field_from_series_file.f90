@@ -1,5 +1,5 @@
 module netcdf_read_field_from_series_file
-  use mpi
+  use mpi_f08, only: MPI_BCAST, MPI_DOUBLE_PRECISION, MPI_INTEGER, MPI_INTEGER8, MPI_COMM_WORLD
   use precisions, only: dp, int8
   use mpi_basic, only: par
   use call_stack_and_comp_time_tracking, only: init_routine, finalise_routine, crash, insert_val_into_string_int
@@ -254,7 +254,7 @@ contains
       ! Yes, confusing... NetCDF uses bits, i.e. 64-bit, while Fortran uses bytes, i.e. 8-byte
       allocate( time_int8( nt))
       call read_var_primary( filename, ncid, id_var_time, time_int8)
-      call MPI_BCAST( time_int8, nt, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+      call MPI_BCAST( time_int8, nt, MPI_INTEGER8, 0, MPI_COMM_WORLD, ierr)
       time = real( time_int8, dp)
     end select
 
