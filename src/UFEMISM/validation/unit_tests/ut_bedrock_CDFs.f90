@@ -16,8 +16,7 @@ module ut_bedrock_CDFs
   use mesh_secondary, only: calc_all_secondary_mesh_data
   use reference_geometry_types, only: type_reference_geometry
   use grid_basic, only: setup_square_grid
-  use ice_model_types, only: type_ice_model
-  use bedrock_cumulative_density_functions, only: calc_bedrock_CDFs
+  use ice_model_main, only: type_ice_model
   use mesh_translation_tables, only: calc_field_to_vector_form_translation_tables
 
   implicit none
@@ -83,11 +82,11 @@ subroutine unit_tests_bedrock_CDFs_main( test_name_parent)
   end do
 
   ! Use 5 bins for  now, including first and last
+  allocate( ice%geom)
   C%subgrid_bedrock_cdf_nbins = 5
-  allocate( ice%geom%bedrock_cdf  ( mesh%vi1:mesh%vi2, C%subgrid_bedrock_cdf_nbins))
-  allocate( ice%geom%bedrock_cdf_b( mesh%ti1:mesh%ti2, C%subgrid_bedrock_cdf_nbins))
+  call ice%geom%allocate( 'ANT', mesh)
 
-  call calc_bedrock_CDFs( mesh, refgeo, ice)
+  call ice%geom%calc_bedrock_CDFs( mesh, refgeo)
 
   ! Vertices
   ! ========

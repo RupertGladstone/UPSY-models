@@ -8,7 +8,6 @@ module ISMIP7_climate
   ! - dtsdz      : the vertical surface temp gradient, to correct for differences in elevation between
   !                the observed and modelled ice-sheet geometry
   ! - pr         : the absolute precipitation (in kg m^-2 s^-1)
-  ! - pr-anomaly : the precipitation anomaly relative to the 1960-1989 baseline
   !
   ! The directory structure for the forcing data is:
   !
@@ -16,7 +15,7 @@ module ISMIP7_climate
   !    path/
   !      to/
   !        base_folder/
-  !          tas/
+  !          tas/        (or 'ts')
   !            version/
   !              tas_somethingsomethingsomething_2015.nc
   !              tas_somethingsomethingsomething_2016.nc
@@ -40,12 +39,6 @@ module ISMIP7_climate
   !              pr_somethingsomethingsomething_2016.nc
   !              pr_somethingsomethingsomething_2017.nc
   !              ...
-  !          pr-anomaly/
-  !            version/
-  !              pr-anomaly_somethingsomethingsomething_2015.nc
-  !              pr-anomaly_somethingsomethingsomething_2016.nc
-  !              pr-anomaly_somethingsomethingsomething_2017.nc
-  !              ...
   !
   ! In the config, you only need to provide the path/to/base_folder and the version; UFEMISM will take
   ! care of the rest, assuming the directory structure is as expected.
@@ -60,7 +53,7 @@ module ISMIP7_climate
   use Arakawa_grid_mod, only: Arakawa_grid
   use fields_dimensions, only: third_dimension
   use mesh_types, only: type_mesh
-  use ice_model_types, only: type_ice_model
+  use ice_geometry_model_data, only: atype_ice_geometry_model_data
   use reference_geometry_types, only: type_reference_geometry
   use netcdf_io_main, only: read_field_from_file_2D_monthly, read_field_from_file_2D
   use climate_model_basic, only: atype_climate_model
@@ -85,7 +78,6 @@ module ISMIP7_climate
       type(type_ISMIP7_forcing_field_monthly) :: tas                 !< [K]                GCM-derived monthly mean surface air temperature
       type(type_ISMIP7_forcing_field_monthly) :: tas_anomaly         !< [K]                GCM-derived monthly mean surface air temperature anomaly
       type(type_ISMIP7_forcing_field_monthly) :: pr                  !< [m.w.e. month^-1]  GCM-derived monthly total precipitation
-      type(type_ISMIP7_forcing_field_monthly) :: pr_anomaly          !< [m.w.e. month^-1]  GCM-derived monthly total precipitation anomaly
       type(type_ISMIP7_forcing_field_yearly)  :: dtsdz               !< [K m^-1]           GCM-derived anual mean vertical temperature gradient
 
       ! Elevation-based temperature correction
@@ -129,7 +121,7 @@ contains
     case ('yearly')
 
       ! Allocate monthly climate (as ISMIP7 forcing fields)
-      call self%tas%allocate( self, 'tas', 'Monthly mean 2-m air temperature', 'K')
+      call self%tas%allocate( self, trim( C%climate_ISMIP7_temperature_name), 'Monthly mean 2-m air temperature', 'K')
       call self%pr%allocate ( self, 'pr' , 'Monthly total precipitation', 'm.w.e. month^-1')
 
     case ('fixed')
@@ -150,8 +142,7 @@ contains
         remap_method = 'reallocate')
 
       ! Allocate anomalies (as ISMIP7 forcing fields)
-      call self%tas_anomaly%allocate( self, 'tas-anomaly', 'Monthly mean 2-m air temperature anomaly', 'K')
-      call self%pr_anomaly%allocate ( self, 'pr-anomaly' , 'Monthly total precipitation anomaly', 'm.w.e. month^-1')
+      call self%tas_anomaly%allocate( self, trim( C%climate_ISMIP7_temperature_name) // '-anomaly', 'Monthly mean 2-m air temperature anomaly', 'K')
 
     end select
 
@@ -207,7 +198,6 @@ contains
     ! call self%tas%deallocate()
     ! call self%tas_anomaly%deallocate()
     ! call self%pr%deallocate()
-    ! call self%pr_anomaly%deallocate()
     ! call self%dtsdz%deallocate()
 
     ! Elevation-based temperature correction
@@ -220,12 +210,13 @@ contains
 
   end subroutine climate_model_ISMIP7_deallocate
 
-  subroutine climate_model_ISMIP7_initialise( self, refgeo_PD, refgeo_init)
+  subroutine climate_model_ISMIP7_initialise( self, geom, refgeo_PD, refgeo_init)
 
     ! In/output variables:
-    class(type_climate_model_ISMIP7), intent(inout) :: self
-    type(type_reference_geometry),    intent(in   ) :: refgeo_PD
-    type(type_reference_geometry),    intent(in   ) :: refgeo_init
+    class(type_climate_model_ISMIP7),     intent(inout) :: self
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    type(type_reference_geometry),        intent(in   ) :: refgeo_PD
+    type(type_reference_geometry),        intent(in   ) :: refgeo_init
 
     ! Local variables:
     character(len=1024), parameter :: routine_name = 'climate_model_ISMIP7_initialise'
@@ -249,7 +240,6 @@ contains
       call self%initialise_climate_baseline_fixed()
 
       call self%tas_anomaly%initialise( C%climate_ISMIP7_forcing_foldername, C%climate_ISMIP7_forcing_version, self%mesh)
-      call self%pr_anomaly%initialise ( C%climate_ISMIP7_forcing_foldername, C%climate_ISMIP7_forcing_version, self%mesh)
 
     end select
 
@@ -279,6 +269,7 @@ contains
     ! Local variables:
     character(len=*), parameter   :: routine_name = 'initialise_climate_baseline_fixed'
     character(len=:), allocatable :: filename
+    integer                       :: vi, mi
 
     ! Add routine to call stack
     call init_routine( routine_name)
@@ -292,17 +283,24 @@ contains
     call read_field_from_file_2D_monthly( C%climate_ISMIP7_filename_baseline, 'T2m'   , self%mesh, C%output_dir, self%T2m_baseline)
     call read_field_from_file_2D_monthly( C%climate_ISMIP7_filename_baseline, 'Precip', self%mesh, C%output_dir, self%Precip_baseline)
 
+    ! Just use baseline precipitation
+    do vi = self%mesh%vi1, self%mesh%vi2
+      do mi = 1, 12
+        self%Precip( vi, mi) = self%Precip_baseline( vi, mi)
+      end do
+    end do
+
     ! Remove routine from call stack
     call finalise_routine( routine_name)
 
   end subroutine initialise_climate_baseline_fixed
 
-  subroutine climate_model_ISMIP7_run( self, ice, time)
+  subroutine climate_model_ISMIP7_run( self, geom, time)
 
     ! In/output variables:
-    class(type_climate_model_ISMIP7), intent(inout) :: self
-    type(type_ice_model),             intent(in   ) :: ice
-    real(dp),                         intent(in   ) :: time
+    class(type_climate_model_ISMIP7),     intent(inout) :: self
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    real(dp),                             intent(in   ) :: time
 
     ! Local variables:
     character(len=*), parameter :: routine_name = 'climate_model_ISMIP7_run'
@@ -317,7 +315,7 @@ contains
     call self%dtsdz%update_and_interpolate( self%mesh, time)
 
     do vi = self%mesh%vi1, self%mesh%vi2
-      self%delta_z ( vi) = ice%geom%Hs( vi) - self%Hs_baseline ( vi)
+      self%delta_z ( vi) = geom%Hs( vi) - self%Hs_baseline ( vi)
       self%delta_ts( vi) = self%delta_z( vi) * self%dtsdz%val_interp( vi)
     end do
 
@@ -343,13 +341,11 @@ contains
 
       ! Update and interpolate timeframes
       call self%tas_anomaly%update_and_interpolate( self%mesh, time)
-      call self%pr_anomaly%update_and_interpolate ( self%mesh, time)
 
       ! Calculate monthly climate
       do vi = self%mesh%vi1, self%mesh%vi2
         do mi = 1, 12
-          self%T2m   ( vi, mi) =             self%T2m_baseline   ( vi, mi) + self%tas_anomaly%val_interp( vi, mi) + self%delta_ts( vi)
-          self%Precip( vi, mi) = max( 0._dp, self%Precip_baseline( vi, mi) + self%pr_anomaly%val_interp ( vi, mi))   ! Must be positive
+          self%T2m   ( vi, mi) = self%T2m_baseline   ( vi, mi) + self%tas_anomaly%val_interp( vi, mi) + self%delta_ts( vi)
         end do
       end do
 

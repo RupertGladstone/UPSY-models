@@ -7,8 +7,9 @@ module conservation_of_mass_main
   use model_configuration, only: C
   use mesh_types, only: type_mesh
   use ice_geometry_model_data, only: atype_ice_geometry_model_data
+  use ice_velocity_model_data, only: atype_ice_velocity_model_data
   use conservation_of_mass_utilities, only: apply_mask_noice_direct
-  use conservation_of_mass_explicit, only: calc_dHi_dt_explicit, apply_ice_thickness_BC_explicit
+  use conservation_of_mass_explicit, only: calc_dHi_dt_explicit
   use conservation_of_mass_semiimplicit, only: calc_dHi_dt_semiimplicit
   use mpi_f08, only: MPI_ALLREDUCE, MPI_IN_PLACE, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD
   use ice_thickness_safeties, only: calc_and_apply_spill_over_flux
@@ -18,18 +19,18 @@ module conservation_of_mass_main
 
   private
 
-  public :: calc_dHi_dt, apply_mask_noice_direct, apply_ice_thickness_BC_explicit
+  public :: calc_dHi_dt, apply_mask_noice_direct
 
 contains
 
-  subroutine calc_dHi_dt( mesh, geom, u_perp, SMB, BMB, LMB, AMB, &
+  subroutine calc_dHi_dt( mesh, geom, vel, SMB, BMB, LMB, AMB, &
     mask_noice, dt, dHi_dt, Hi_tplusdt, divQ, dHi_dt_target, Qspill, BC_prescr_mask, BC_prescr_Hi)
     !< Calculate ice thickness at time t+dt
 
     ! In/output variables:
     type(type_mesh),                                     intent(in   )           :: mesh                  ! [-]       The model mesh
     class(atype_ice_geometry_model_data),                intent(in   )           :: geom                  !           The ice-sheet geometry
-    real(dp), dimension(mesh%vi1:mesh%vi2, mesh%nC_mem), intent(in   )           :: u_perp                ! [m yr^-1] Vertically-averaged ice velocity components perpendicular to Voronoi cell boundaries
+    class(atype_ice_velocity_model_data),                intent(in   )           :: vel                   !           The ice-sheet velocity
     real(dp), dimension(mesh%vi1:mesh%vi2),              intent(in   )           :: SMB                   ! [m yr^-1] Surface mass balance
     real(dp), dimension(mesh%vi1:mesh%vi2),              intent(in   )           :: BMB                   ! [m yr^-1] Basal   mass balance
     real(dp), dimension(mesh%vi1:mesh%vi2),              intent(in   )           :: LMB                   ! [m yr^-1] Lateral mass balance
@@ -63,21 +64,21 @@ contains
     case ('none')
       ! Unchanging ice geometry
 
-      Hi_tplusdt = geom%Hi
-      dHi_dt     = 0._dp
+      Hi_tplusdt( mesh%vi1:mesh%vi2) = geom%Hi( mesh%vi1:mesh%vi2)
+      dHi_dt    ( mesh%vi1:mesh%vi2) = 0._dp
       call finalise_routine( routine_name)
       return
 
     case ('explicit')
-      call calc_dHi_dt_explicit( mesh, geom, u_perp, SMB, BMB, LMB, AMB, &
+      call calc_dHi_dt_explicit( mesh, geom, vel, SMB, BMB, LMB, AMB, &
          mask_noice, dt, dHi_dt, Hi_tplusdt, divQ, dHi_dt_target, BC_prescr_mask, BC_prescr_Hi)
     case ('semi-implicit')
-      call calc_dHi_dt_semiimplicit( mesh, geom, u_perp, SMB, BMB, LMB, AMB, &
+      call calc_dHi_dt_semiimplicit( mesh, geom, vel, SMB, BMB, LMB, AMB, &
          mask_noice, dt, dHi_dt, Hi_tplusdt, divQ, dHi_dt_target, BC_prescr_mask, BC_prescr_Hi)
     end select
 
     ! Apply spill over from overfilled margin cells
-    call calc_and_apply_spill_over_flux( mesh, geom, u_perp, Qspill, Hi_tplusdt, dt)
+    call calc_and_apply_spill_over_flux( mesh, geom, vel, Qspill, Hi_tplusdt, dt)
 
     ! Limit Hi( t+dt) to zero; throw a warning if negative thickness are encountered
     found_negative_vals = .false.
@@ -99,11 +100,13 @@ contains
       call warning('encountered negative values for Hi_tplusdt - time step too large?')
     end if
 
-    ! Add difference between corrected and uncorrected dHi_dt to residual tracker
-    AMB = AMB + (Hi_tplusdt - geom%Hi) / dt - dHi_dt
+    do vi = mesh%vi1, mesh%vi2
+      ! Add difference between corrected and uncorrected dHi_dt to residual tracker
+      AMB( vi) = AMB( vi) + (Hi_tplusdt( vi) - geom%Hi( vi)) / dt - dHi_dt( vi)
 
-    ! Recalculate dH/dt with adjusted values of H
-    dHi_dt = (Hi_tplusdt - geom%Hi) / dt
+      ! Recalculate dH/dt with adjusted values of H
+      dHi_dt( vi) = (Hi_tplusdt( vi) - geom%Hi( vi)) / dt
+    end do
 
     call checksum( mesh%pai_V, dHi_dt, 'dHi_dt')
     call checksum( mesh%pai_V, AMB   , 'AMB')

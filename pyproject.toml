@@ -18,9 +18,12 @@ classifiers = [
 
 dependencies = [
     "cartopy",
+    "cmasher",
+    "cmcrameri",
     "cmocean",
     "dask",
     "geopandas",
+    "h5py",
     "matplotlib",
     "netcdf4",
     "numpy",

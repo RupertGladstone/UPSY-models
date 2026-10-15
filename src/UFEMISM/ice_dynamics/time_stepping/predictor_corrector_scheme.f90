@@ -9,14 +9,16 @@ module predictor_corrector_scheme
   use model_configuration, only: C
   use region_types, only: type_model_region
   use mesh_types, only: type_mesh
-  use ice_model_types, only: type_ice_model, type_ice_pc
+  use ice_model_data, only: atype_ice_model_data, type_ice_pc
+  use ice_geometry_model_data, only: atype_ice_geometry_model_data
+  use ice_velocity_model_data, only: atype_ice_velocity_model_data
   use reallocate_mod, only: reallocate_bounds
   use netcdf_io_main
   use time_step_criteria, only: calc_critical_timestep_adv
   use conservation_of_mass_main, only: calc_dHi_dt
   use ice_thickness_safeties, only: alter_ice_thickness
-  use conservation_of_momentum_main, only: solve_stress_balance
   use checksum_mod, only: checksum
+  use remove_unconnected_shelves_mod, only: remove_unconnected_shelves
 
   implicit none
 
@@ -35,84 +37,37 @@ contains
     real(dp),                intent(in   ) :: dt_max
 
     ! Local variables:
-    character(len=1024), parameter                       :: routine_name = 'run_ice_dynamics_model_pc'
-    real(dp)                                             :: dt_crit_adv
+    character(len=*), parameter                          :: routine_name = 'run_ice_dynamics_model_pc'
     integer                                              :: pc_it
+    integer                                              :: vi
     real(dp), dimension(region%mesh%vi1:region%mesh%vi2) :: Hi_dummy
-    integer                                              :: vi, n_guilty, n_tot
-    integer                                              :: n_visc_its
-    integer                                              :: n_Axb_its
-    integer                                              :: ierr
+    real(dp)                                             :: beta_1, beta_2
+    integer                                              :: n_guilty, n_tot
     real(dp), dimension(region%mesh%vi1:region%mesh%vi2) :: SMB_loc
 
     ! Add routine to path
     call init_routine( routine_name)
 
-    ! Store previous ice model state
-    region%ice%t_Hi_prev  = region%ice%t_Hi_next
-    region%ice%Hi_prev    = region%ice%Hi_next
+    ! Cycle timeframes
+    region%ice%t_Hi_prev                                                = region%ice%t_Hi_next
+    region%ice%Hi_prev               ( region%mesh%vi1:region%mesh%vi2) = region%ice%Hi_next           ( region%mesh%vi1:region%mesh%vi2)
+    region%ice%pc%dHi_dt_Hi_nm1_u_nm1( region%mesh%vi1:region%mesh%vi2) = region%ice%pc%dHi_dt_Hi_n_u_n( region%mesh%vi1:region%mesh%vi2)
+    region%ice%pc%eta_n                                                 = region%ice%pc%eta_np1
 
-    ! == Calculate time step ==
-    ! =========================
-
-    ! Store previous time step
+    ! Calculate time step
     region%ice%pc%dt_n = region%ice%pc%dt_np1
+    call calc_dt_np1( region, dt_max, region%ice%pc%dt_n, region%ice%pc%dt_np1)
 
-    ! Calculate new time step (Robinson et al., 2020, Eq. 33)
-    region%ice%pc%dt_np1 = (C%pc_epsilon / region%ice%pc%eta_np1)**(C%pc_k_I + C%pc_k_p) * &
-      (C%pc_epsilon / region%ice%pc%eta_n)**(-C%pc_k_p) * region%ice%pc%dt_n
-
-    ! Limit time step to maximum allowed value
-    region%ice%pc%dt_np1 = MIN( region%ice%pc%dt_np1, dt_max)
-
-    ! Limit time step to 1.2 times the previous time step
-    region%ice%pc%dt_np1 = MIN( region%ice%pc%dt_np1, C%pc_max_time_step_increase * region%ice%pc%dt_n)
-
-    ! Limit time step to minimum allowed value
-    region%ice%pc%dt_np1 = MAX( region%ice%pc%dt_np1, C%dt_ice_min)
-
-    ! Limit time step to critical advective time step
-    call calc_critical_timestep_adv( region%mesh, region%ice, dt_crit_adv)
-
-    region%ice%pc%dt_np1 = MIN( region%ice%pc%dt_np1, dt_crit_adv)
-
-    ! == Ice masks for domain or for calving thresholds ==
-    ! ====================================================
-
-    ! Apply no ice mask and assure ice thinning rate is zero where Hi_prev = 0
-    do vi = region%mesh%vi1, region%mesh%vi2
-      if (region%ice%mask_noice( vi)) then
-        region%ice%Hi_prev( vi) = 0._dp
-        region%ice%dHi_dt(vi)  = 0._dp
-      end if
-    end do
-
-    ! Update masks
-    call region%ice%geom%determine_masks()
-
-      ! Update sub-grid grounded fractions
-    call region%ice%geom%calc_grounded_fractions( region%ice%dHb)
-
-      ! Update effective ice thickness
-    call region%ice%geom%calc_effective_thickness()
+    ! Store local SMB for hybrid memory reasons
+    SMB_loc( region%mesh%vi1: region%mesh%vi2) = region%SMB%SMB( region%mesh%vi1: region%mesh%vi2)
 
     ! == Time step iteration: if, at the end of the PC timestep, the truncation error
     !    turns out to be too large, run it again with a smaller dt, until the truncation
     !    decreases to below the specified tolerance
     ! ==================================================================================
 
-    ! Store thinning rates from previous time step
-    region%ice%pc%dHi_dt_Hi_nm1_u_nm1 = region%ice%dHi_dt
-
-    ! Store the previous maximum truncation error eta_n
-    region%ice%pc%eta_n = region%ice%pc%eta_np1
-
-    ! Store local SMB for hybrid memory reasons
-    SMB_loc( region%mesh%vi1: region%mesh%vi2) = region%SMB%SMB( region%mesh%vi1: region%mesh%vi2)
-
     pc_it = 0
     iterate_pc_timestep: do while (pc_it < C%pc_nit_max)
-
       pc_it = pc_it + 1
 
       ! Calculate time step ratio
@@ -122,155 +77,86 @@ contains
       ! ====================
 
       ! Calculate thinning rates for current geometry and velocity
-      call calc_dHi_dt( region%mesh, region%ice%geom, region%ice%u_perp, SMB_loc, region%BMB%BMB, region%LMB%LMB, region%AMB%AMB, &
-                        region%ice%mask_noice, region%ice%pc%dt_np1, region%ice%pc%dHi_dt_Hi_n_u_n, Hi_dummy, region%ice%divQ, region%ice%dHi_dt_target, region%ice%Qspill)
-
-      ! Making sure verticies in no ice mask have zero thinning rates
-      do vi = region%mesh%vi1, region%mesh%vi2
-        if (region%ice%mask_noice( vi)) then
-          region%ice%pc%dHi_dt_Hi_n_u_n(vi)  = 0._dp
-        end if
-      end do
-
-      ! Calculate predicted ice thickness (Robinson et al., 2020, Eq. 30)
-      region%ice%pc%Hi_star_np1 = region%ice%Hi_prev + region%ice%pc%dt_np1 * ((1._dp + region%ice%pc%zeta_t / 2._dp) * &
-        region%ice%pc%dHi_dt_Hi_n_u_n - (region%ice%pc%zeta_t / 2._dp) * region%ice%pc%dHi_dt_Hi_nm1_u_nm1)
-      call checksum( region%mesh%pai_V, region%ice%pc%Hi_star_np1, 'region%ice%pc%Hi_star_np1')
-
-      ! if so desired, modify the predicted ice thickness field based on user-defined settings
-      call alter_ice_thickness( region%mesh, region%ice, region%ice%Hi_prev, region%ice%geom%Hb, region%ice%geom%SL, region%ice%pc%Hi_star_np1, region%refgeo_PD, region%time)
-
-
-      ! Adjust the predicted dHi_dt to compensate for thickness modifications
-      ! This is just Robinson et al., 2020, Eq 30 above rearranged to retrieve
-      ! an updated dHi_dt_Hi_n_u_n from the modified Hi_star_np1. if no ice
-      ! thickness modifications were applied, then there will be not change.
-      region%ice%pc%dHi_dt_Hi_n_u_n = ((region%ice%pc%Hi_star_np1 - region%ice%Hi_prev) / region%ice%pc%dt_np1 + (region%ice%pc%zeta_t / 2._dp) * region%ice%pc%dHi_dt_Hi_nm1_u_nm1) / (1._dp + region%ice%pc%zeta_t / 2._dp)
+      !   f(H_n, u_n) in Robinson et al., 2020, Eq. 30
+      call calc_dHi_dt( region%mesh, region%ice%geom, region%ice%vel, SMB_loc, region%BMB%BMB, region%LMB%LMB, region%AMB%AMB, &
+        region%ice%mask_noice, region%ice%pc%dt_np1, region%ice%pc%dHi_dt_Hi_n_u_n, Hi_dummy, &
+        region%ice%divQ, region%ice%dHi_dt_target, region%ice%Qspill)
+      call apply_noice_mask( region%mesh, region%ice%mask_noice, region%ice%pc%dHi_dt_Hi_n_u_n)
       call checksum( region%mesh%pai_V, region%ice%pc%dHi_dt_Hi_n_u_n, 'region%ice%pc%dHi_dt_Hi_n_u_n')
+
+      ! Calculate predicted ice thickness
+      !  H*_n+1 in Robinson et al., 2020, Eq. 30
+      beta_1 = 1._dp + region%ice%pc%zeta_t / 2._dp
+      beta_2 =        -region%ice%pc%zeta_t / 2._dp
+      do vi = region%mesh%vi1, region%mesh%vi2
+        region%ice%pc%Hi_star_np1( vi) = region%ice%Hi_prev( vi) + region%ice%pc%dt_np1 * (&
+          beta_1 * region%ice%pc%dHi_dt_Hi_n_u_n    ( vi) + &
+          beta_2 * region%ice%pc%dHi_dt_Hi_nm1_u_nm1( vi))
+      end do
+      call apply_noice_mask( region%mesh, region%ice%mask_noice, region%ice%pc%Hi_star_np1)
+      if (C%do_apply_ISMIP7_fracture_mask) then
+        call region%ice%ISMIP7_fracture%run( region%time, region%ice%geom, region%ice%pc%Hi_star_np1)
+      end if
+      call forbid_negative_ice_thickness( region%mesh, region%ice%pc%Hi_star_np1)
+      call remove_unconnected_shelves( region%mesh, region%ice%geom%Hb, region%ice%geom%SL, region%ice%pc%Hi_star_np1)
+      call alter_ice_thickness( region%mesh, region%ice, region%ice%geom, region%ice%Hi_prev, &
+        region%ice%pc%Hi_star_np1, region%refgeo_PD, region%time)
+      call checksum( region%mesh%pai_V, region%ice%pc%Hi_star_np1, 'region%ice%pc%Hi_star_np1')
 
       ! == Update step ==
       ! =================
 
-      ! Set model geometry to predicted
-      region%ice%geom%Hi = region%ice%pc%Hi_star_np1
-
-      ! Set thinning rates to predicted
-      region%ice%dHi_dt = (region%ice%geom%Hi - region%ice%Hi_prev) / region%ice%pc%dt_np1
-
-      ! Set model geometry to predicted
-      call region%ice%geom%calc_surface_elevation()
-      call region%ice%geom%calc_ice_base_elevation()
-
-      ! Update masks
-      call region%ice%geom%determine_masks()
-
-      ! DENK DROM : assess whether this is important for the velocitiy computation below
-      ! ! Calculate zeta gradients
-      ! call calc_zeta_gradients( region%mesh, region%ice)
-
-      ! Update sub-grid grounded fractions
-      call region%ice%geom%calc_grounded_fractions( region%ice%dHb)
-
-      ! DENK DROM : assess whether this is important for the velocitiy computation below
-      ! ! Calculate the basal mass balance
-      ! call run_BMB_model( region%mesh, region%ice, region%ocean, region%refgeo_PD, region%BMB, region%name, region%time)
+      ! Set ice geometry to H*_n+1
+      do vi = region%mesh%vi1, region%mesh%vi2
+        region%ice%geom%Hi( vi) = region%ice%pc%Hi_star_np1( vi)
+      end do
+      call region%ice%geom%calc_all_secondary_geometry_variables( region%ice%dHb)
 
       ! Calculate ice velocities for the predicted geometry
-      call solve_stress_balance( region%mesh, region%ice, region%bed_roughness, &
-        region%BMB%BMB, region%name, n_visc_its, n_Axb_its)
+      !   u_n+1 in Robinson et al., 2020, Eq. 31
+      call region%ice%momentum_balance_solver%run( region%ice, region%ice%geom, &
+        region%bed_roughness, region%ice%vel, region%BMB%BMB)
 
       ! Update stability info
       region%ice%dt_ice     = region%ice%pc%dt_np1
-      region%ice%n_visc_its = n_visc_its
-      region%ice%n_Axb_its  = n_Axb_its
+      region%ice%n_visc_its = region%ice%momentum_balance_solver%n_visc_its
+      region%ice%n_Axb_its  = region%ice%momentum_balance_solver%n_Axb_its
 
       ! == Corrector step ==
       ! ====================
 
-      ! Set model geometry back to original
-      do vi = region%mesh%vi1, region%mesh%vi2
-        region%ice%geom%Hi(  vi) = region%ice%Hi_prev( vi)
-      end do
-      call region%ice%geom%calc_surface_elevation()
-      call region%ice%geom%calc_ice_base_elevation()
-
-      ! Update masks
-      call region%ice%geom%determine_masks()
-
-      ! Update sub-grid grounded fractions
-      call region%ice%geom%calc_grounded_fractions( region%ice%dHb)
-
-      ! Update effective ice thickness
-      call region%ice%geom%calc_effective_thickness()
-
-      ! Calculate thinning rates for the current ice thickness and predicted velocity
-      call calc_dHi_dt( region%mesh, region%ice%geom, region%ice%u_perp, SMB_loc, region%BMB%BMB, region%LMB%LMB, region%AMB%AMB, &
-                        region%ice%mask_noice, region%ice%pc%dt_np1, region%ice%pc%dHi_dt_Hi_star_np1_u_np1, Hi_dummy, region%ice%divQ, region%ice%dHi_dt_target, region%ice%Qspill)
-
-      ! Making sure verticies in no ice mask have zero thinning rates
-      do vi = region%mesh%vi1, region%mesh%vi2
-        if (region%ice%mask_noice( vi)) then
-          region%ice%pc%dHi_dt_Hi_star_np1_u_np1(vi)  = 0._dp
-        end if
-      end do
-
-
-      ! Calculate corrected ice thickness (Robinson et al. (2020), Eq. 31)
-      region%ice%pc%Hi_np1 = region%ice%Hi_prev + (region%ice%pc%dt_np1 / 2._dp) * (region%ice%pc%dHi_dt_Hi_n_u_n + region%ice%pc%dHi_dt_Hi_star_np1_u_np1)
-      call checksum( region%mesh%pai_V, region%ice%pc%Hi_np1, 'region%ice%pc%Hi_np1')
-
-      ! Save "raw" thinning rates, as applied after the corrector step
-      region%ice%dHi_dt_raw = (region%ice%pc%Hi_np1 - region%ice%Hi_prev) / region%ice%pc%dt_np1
-
-      ! if so desired, modify the corrected ice thickness field based on user-defined settings
-      call alter_ice_thickness( region%mesh, region%ice, region%ice%Hi_prev, region%ice%geom%Hb, region%ice%geom%SL, region%ice%pc%Hi_np1, region%refgeo_PD, region%time)
-
-      ! Adjust the predicted dHi_dt to compensate for thickness modifications
-      ! This is just Robinson et al., 2020, Eq 31 above rearranged to retrieve
-      ! an updated dHi_dt_Hi_star_np1_u_np1 from the modified Hi_np1. if no ice
-      ! thickness modifications were applied, then there will be not change.
-      region%ice%pc%dHi_dt_Hi_star_np1_u_np1 = (region%ice%pc%Hi_np1 - region%ice%Hi_prev) / (region%ice%pc%dt_np1 / 2._dp) - region%ice%pc%dHi_dt_Hi_n_u_n
+      ! Calculate thinning rates for the predicted ice thickness and predicted velocity
+      !  f( H*_n+1, u_n+1) in Robinson et al., 2020, Eq. 31
+      call calc_dHi_dt( region%mesh, region%ice%geom, region%ice%vel, SMB_loc, region%BMB%BMB, region%LMB%LMB, region%AMB%AMB, &
+        region%ice%mask_noice, region%ice%pc%dt_np1, region%ice%pc%dHi_dt_Hi_star_np1_u_np1, Hi_dummy, &
+        region%ice%divQ, region%ice%dHi_dt_target, region%ice%Qspill)
+      call apply_noice_mask( region%mesh, region%ice%mask_noice, region%ice%pc%dHi_dt_Hi_star_np1_u_np1)
       call checksum( region%mesh%pai_V, region%ice%pc%dHi_dt_Hi_star_np1_u_np1, 'region%ice%pc%dHi_dt_Hi_star_np1_u_np1')
 
-      ! Add difference between raw and applied dHi_dt to residual tracker
-      region%ice%dHi_dt_residual = region%ice%dHi_dt_raw - &  ! Raw change
-                                  (region%ice%pc%Hi_np1 - region%ice%Hi_prev) / region%ice%pc%dt_np1  ! Minus applied change
-      call checksum( region%mesh%pai_V, region%ice%dHi_dt_residual, 'region%ice%dHi_dt_residual')
+      ! Calculate corrected ice thickness
+      !   H_n+1 in Robinson et al. (2020), Eq. 31
+      region%ice%pc%Hi_np1 = region%ice%Hi_prev + (region%ice%pc%dt_np1 / 2._dp) * &
+        (region%ice%pc%dHi_dt_Hi_n_u_n + region%ice%pc%dHi_dt_Hi_star_np1_u_np1)
+      call apply_noice_mask( region%mesh, region%ice%mask_noice, region%ice%pc%Hi_np1)
+      if (C%do_apply_ISMIP7_fracture_mask) then
+        call region%ice%ISMIP7_fracture%run( region%time, region%ice%geom, region%ice%pc%Hi_np1)
+      end if
+      call forbid_negative_ice_thickness( region%mesh, region%ice%pc%Hi_np1)
+      call remove_unconnected_shelves( region%mesh, region%ice%geom%Hb, region%ice%geom%SL, region%ice%pc%Hi_np1)
+      call alter_ice_thickness( region%mesh, region%ice, region%ice%geom, region%ice%Hi_prev, &
+        region%ice%pc%Hi_np1, region%refgeo_PD, region%time)
+      call checksum( region%mesh%pai_V, region%ice%pc%Hi_np1, 'region%ice%pc%Hi_np1')
 
       ! == Truncation error ==
       ! ======================
 
       ! Estimate truncation error
-      call calc_pc_truncation_error( region%mesh, region%ice, region%ice%pc)
+      call calc_pc_truncation_error( region%mesh, region%ice%geom, region%ice%pc)
 
       ! == Error assessment ==
       ! ======================
 
-      ! Initialise unstable vertex count
-      n_tot = 0
-      n_guilty = 0
-
-      ! Determine number of unstable vertices
-      do vi = region%mesh%vi1, region%mesh%vi2
-        ! Only consider fully grounded vertices
-        if (region%ice%geom%fraction_gr( vi) < 1._dp) CYCLE
-        ! if so, add to total vertex count
-        n_tot = n_tot + 1
-        ! if this vertex's error is larger than tolerance
-        if (region%ice%pc%tau_np1( vi) > C%pc_epsilon) then
-          ! Add to total guilty vertex count
-          n_guilty = n_guilty + 1
-          ! Add to this vertex's guilty record
-          region%ice%pc%tau_n_guilty( vi) = region%ice%pc%tau_n_guilty( vi) + 1
-        end if
-      end do
-
-      ! Add up findings from each process domain
-      call MPI_ALLREDUCE( MPI_IN_PLACE, n_tot,    1, MPI_integer, MPI_SUM, MPI_COMM_WORLD, ierr)
-      call MPI_ALLREDUCE( MPI_IN_PLACE, n_guilty, 1, MPI_integer, MPI_SUM, MPI_COMM_WORLD, ierr)
-
-      ! Safety
-      if (n_tot == 0) n_tot = 1
+      call calc_n_guilty( region%mesh, region%ice%geom, region%ice%pc, n_guilty, n_tot)
 
       ! Check if largest truncation error is small enough; if so, move on
       if (region%ice%pc%eta_np1 < C%pc_epsilon) then
@@ -301,31 +187,109 @@ contains
 
     ! Set next modelled ice thickness
     region%ice%t_Hi_next = region%ice%t_Hi_prev + region%ice%pc%dt_np1
-    region%ice%Hi_next   = region%ice%pc%Hi_np1
+    region%ice%Hi_next( region%mesh%vi1:region%mesh%vi2) = region%ice%pc%Hi_np1( region%mesh%vi1:region%mesh%vi2)
 
-#if (DO_ASSERTIONS)
     ! Safety
-    do vi = region%mesh%vi1, region%mesh%vi2
-      if (region%ice%Hi_next(vi) < 0._dp) then
-        call crash('Hi became negative in the PC scheme with a value of {dp_01} at vertex {int_01}!', &
-          dp_01 = region%ice%Hi_next(vi), int_01 = vi)
-      end if
-    end do
-#endif
+    if (any( region%ice%Hi_next < 0._dp)) then
+      call crash('negative ice thicknesses detected at the end of the P/C scheme')
+    end if
 
     ! Finalise routine path
     call finalise_routine( routine_name)
 
   end subroutine run_ice_dynamics_model_pc
 
-  subroutine calc_pc_truncation_error( mesh, ice, pc)
+  subroutine calc_dt_np1( region, dt_max, dt_n, dt_np1)
+
+    ! In/output variables:
+    type(type_model_region), intent(in   ) :: region
+    real(dp),                intent(in   ) :: dt_max
+    real(dp),                intent(in   ) :: dt_n
+    real(dp),                intent(  out) :: dt_np1
+
+    ! Local variables:
+    character(len=*), parameter :: routine_name = 'calc_dt_np1'
+    real(dp)                    :: dt_crit_adv
+
+    ! Add routine to path
+    call init_routine( routine_name)
+
+    ! Calculate new time step (Robinson et al., 2020, Eq. 33)
+    dt_np1 = (C%pc_epsilon / region%ice%pc%eta_np1)**(C%pc_k_I + C%pc_k_p) * &
+      (C%pc_epsilon / region%ice%pc%eta_n)**(-C%pc_k_p) * dt_n
+
+    ! Limit time step to maximum allowed value
+    dt_np1 = min( dt_np1, dt_max)
+
+    ! Limit time step to 1.2 times the previous time step
+    dt_np1 = min( dt_np1, C%pc_max_time_step_increase * dt_n)
+
+    ! Limit time step to minimum allowed value
+    dt_np1 = max( dt_np1, C%dt_ice_min)
+
+    ! Limit time step to critical advective time step
+    call calc_critical_timestep_adv( region%mesh, region%ice%geom, region%ice%vel, dt_crit_adv)
+
+    dt_np1 = min( dt_np1, dt_crit_adv)
+
+    ! Finalise routine path
+    call finalise_routine( routine_name)
+
+  end subroutine calc_dt_np1
+
+  subroutine apply_noice_mask( mesh, mask_noice, Hi_or_dHi_dt)
+
+    ! In/output variables:
+    type(type_mesh),                        intent(in   ) :: mesh
+    logical,  dimension(mesh%vi1:mesh%vi2), intent(in   ) :: mask_noice
+    real(dp), dimension(mesh%vi1:mesh%vi2), intent(inout) :: Hi_or_dHi_dt
+
+    ! Local variables:
+    character(len=*), parameter :: routine_name = 'apply_noice_mask'
+    integer                     :: vi
+
+    ! Add routine to path
+    call init_routine( routine_name)
+
+    do vi = mesh%vi1, mesh%vi2
+      if (mask_noice( vi)) Hi_or_dHi_dt( vi) = 0._dp
+    end do
+
+    ! Finalise routine path
+    call finalise_routine( routine_name)
+
+  end subroutine apply_noice_mask
+
+  subroutine forbid_negative_ice_thickness( mesh, Hi)
+
+    ! In/output variables:
+    type(type_mesh),                        intent(in   ) :: mesh
+    real(dp), dimension(mesh%vi1:mesh%vi2), intent(inout) :: Hi
+
+    ! Local variables:
+    character(len=*), parameter :: routine_name = 'forbid_negative_ice_thickness'
+    integer                     :: vi
+
+    ! Add routine to path
+    call init_routine( routine_name)
+
+    do vi = mesh%vi1, mesh%vi2
+      if (Hi( vi) < 0._dp) Hi( vi) = 0._dp
+    end do
+
+    ! Finalise routine path
+    call finalise_routine( routine_name)
+
+  end subroutine forbid_negative_ice_thickness
+
+  subroutine calc_pc_truncation_error( mesh, geom, pc)
     !< Calculate the truncation error tau in the ice thickness
     !< rate of change (Robinson et al., 2020, Eq. 32)
 
     ! In- and output variables:
-    type(type_mesh),      intent(in   ) :: mesh
-    type(type_ice_model), intent(in   ) :: ice
-    type(type_ice_pc),    intent(inout) :: pc
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    type(type_ice_pc),                    intent(inout) :: pc
 
     ! Local variables:
     character(len=1024), parameter :: routine_name = 'calc_pc_truncation_error'
@@ -342,7 +306,7 @@ contains
     ! Calculate the maximum truncation error eta over grounded ice only
     pc%eta_np1 = C%pc_eta_min
     do vi = mesh%vi1, mesh%vi2
-      if (ice%geom%mask_grounded_ice( vi) .and. .not. ice%geom%mask_gl_gr( vi) .and. ice%geom%fraction_gr( vi) == 1._dp) then
+      if (geom%mask_grounded_ice( vi) .and. .not. geom%mask_gl_gr( vi) .and. geom%fraction_gr( vi) == 1._dp) then
         pc%eta_np1 = MAX( pc%eta_np1, pc%tau_np1( vi))
       end if
     end do
@@ -354,6 +318,54 @@ contains
     call finalise_routine( routine_name)
 
   end subroutine calc_pc_truncation_error
+
+  subroutine calc_n_guilty( mesh, geom, pc, n_guilty, n_tot)
+    !< Calculate the truncation error tau in the ice thickness
+    !< rate of change (Robinson et al., 2020, Eq. 32)
+
+    ! In- and output variables:
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    type(type_ice_pc),                    intent(inout) :: pc
+    integer,                              intent(  out) :: n_guilty, n_tot
+
+    ! Local variables:
+    character(len=*), parameter :: routine_name = 'calc_n_guilty'
+    integer                     :: vi, ierr
+
+    ! Add routine to path
+    call init_routine( routine_name)
+
+    ! Initialise unstable vertex count
+    n_tot = 0
+    n_guilty = 0
+
+    ! Determine number of unstable vertices
+    do vi = mesh%vi1, mesh%vi2
+      ! Only consider fully grounded vertices
+      if (geom%fraction_gr( vi) < 1._dp) CYCLE
+      ! if so, add to total vertex count
+      n_tot = n_tot + 1
+      ! if this vertex's error is larger than tolerance
+      if (pc%tau_np1( vi) > C%pc_epsilon) then
+        ! Add to total guilty vertex count
+        n_guilty = n_guilty + 1
+        ! Add to this vertex's guilty record
+        pc%tau_n_guilty( vi) = pc%tau_n_guilty( vi) + 1
+      end if
+    end do
+
+    ! Add up findings from each process domain
+    call MPI_ALLREDUCE( MPI_IN_PLACE, n_tot,    1, MPI_integer, MPI_SUM, MPI_COMM_WORLD, ierr)
+    call MPI_ALLREDUCE( MPI_IN_PLACE, n_guilty, 1, MPI_integer, MPI_SUM, MPI_COMM_WORLD, ierr)
+
+    ! Safety
+    if (n_tot == 0) n_tot = 1
+
+    ! Finalise routine path
+    call finalise_routine( routine_name)
+
+  end subroutine calc_n_guilty
 
   subroutine initialise_pc_scheme( mesh, pc, region_name)
     !< allocate memory and initialise values for the ice thickness predictor/corrector scheme.

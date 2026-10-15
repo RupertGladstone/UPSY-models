@@ -11,7 +11,9 @@ program UFEMISM_program
   ! =                                                                             =
   ! ===============================================================================
 
-  use petscksp
+#include <petsc/finclude/petscsys.h>
+
+  use petsc, only: PetscErrorF, PetscFinalize
   use precisions, only: dp
   use basic_program_info, only: program_name
   use mpi_basic, only: par, initialise_parallelisation
@@ -30,6 +32,7 @@ program UFEMISM_program
   use component_tests, only: run_all_component_tests
   use checksum_mod, only: create_checksum_logfile
   use git_commit_hash_and_package_versions, only: print_git_commit_hash_and_package_versions
+  use mpi_f08, only: MPI_WTIME, MPI_ALLREDUCE, MPI_IN_PLACE, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD
 
   implicit none
 
@@ -53,7 +56,6 @@ program UFEMISM_program
 
   ! Initialise MPI parallelisation and PETSc
   call initialise_parallelisation
-  call PetscInitialize( PETSC_NULL_CHARACTER, perr)
 
   call print_git_commit_hash_and_package_versions
 
@@ -114,11 +116,11 @@ program UFEMISM_program
     ! MISMIP+ flow factor tuning for GL position
     if (C%refgeo_idealised_MISMIPplus_tune_A) then
       Hs_prev = Hs_cur
-      Hs_cur  = MAXVAL( ANT%ice%geom%Hs)
+      Hs_cur  = MAXVAL( ANT%ice%geom%Hs( ANT%mesh%vi1:ANT%mesh%vi2))
       call MPI_ALLREDUCE( MPI_IN_PLACE, Hs_cur, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
       if (ABS( 1._dp - Hs_cur / Hs_prev) < 5.0E-3_dp) then
         ! The model has converged to a steady state; adapt the flow factor
-        call MISMIPplus_adapt_flow_factor( ANT%mesh, ANT%ice)
+        call MISMIPplus_adapt_flow_factor( ANT%mesh, ANT%ice%geom)
       end if
     end if
 
@@ -136,7 +138,6 @@ program UFEMISM_program
   call print_model_end( tcomp)
 
   ! Finalise PETSc and MPI parallelisation
-  call PetscFinalize( perr)
-  call MPI_FINALIZE( ierr)
+  PetscCall( PetscFinalize( perr))
 
 end program UFEMISM_program

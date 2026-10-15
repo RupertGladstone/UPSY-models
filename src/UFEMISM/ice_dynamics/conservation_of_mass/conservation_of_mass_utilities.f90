@@ -5,9 +5,12 @@ module conservation_of_mass_utilities
   use model_configuration, only: C
   use mesh_types, only: type_mesh
   use CSR_matrix_mod, only: type_CSR_matrix_dp
-  use map_velocities_to_c_grid, only: map_velocities_from_b_to_c_2D
   use mpi_distributed_memory, only: gather_to_all
+  use mpi_distributed_shared_memory, only: gather_dist_shared_to_all
   use mpi_f08, only: MPI_ALLREDUCE, MPI_IN_PLACE, MPI_DOUBLE_PRECISION, MPI_MIN, MPI_COMM_WORLD
+  use crash_mod, only: crash
+  use ice_geometry_model_data, only: atype_ice_geometry_model_data
+  use ice_velocity_model_data, only: atype_ice_velocity_model_data
 
   implicit none
 
@@ -18,7 +21,7 @@ module conservation_of_mass_utilities
 
 contains
 
-  subroutine calc_ice_flux_divergence_matrix_upwind( mesh, u_perp, fraction_margin, M_divQ)
+  subroutine calc_ice_flux_divergence_matrix_upwind( mesh, vel, fraction_margin, M_divQ)
     !< Calculate the ice flux divergence matrix M_divQ using an upwind scheme
 
     ! The vertically averaged ice flux divergence represents the net ice volume (which,
@@ -31,10 +34,10 @@ contains
     ! ice thickness at vj.
 
     ! In/output variables:
-    type(type_mesh),                                     intent(in   ) :: mesh
-    real(dp), dimension(mesh%vi1:mesh%vi2, mesh%nC_mem), intent(in   ) :: u_perp
-    real(dp), dimension(mesh%vi1:mesh%vi2),              intent(in   ) :: fraction_margin
-    type(type_CSR_matrix_dp),                            intent(  out) :: M_divQ
+    type(type_mesh),                                          intent(in   ) :: mesh
+    class(atype_ice_velocity_model_data),                     intent(in   ) :: vel
+    real(dp), dimension(mesh%pai_V%i1_nih:mesh%pai_V%i2_nih), intent(in   ) :: fraction_margin
+    type(type_CSR_matrix_dp),                                 intent(  out) :: M_divQ
 
     ! Local variables:
     character(len=1024), parameter     :: routine_name = 'calc_ice_flux_divergence_matrix_upwind'
@@ -48,7 +51,7 @@ contains
     call init_routine( routine_name)
 
     ! Calculate vertically averaged ice velocities on the edges
-    call gather_to_all( fraction_margin, fraction_margin_tot)
+    call gather_dist_shared_to_all( mesh%pai_V, fraction_margin, fraction_margin_tot)
 
     ! == Initialise the matrix using the native UFEMISM CSR-matrix format
     ! ===================================================================
@@ -84,30 +87,30 @@ contains
         ! Calculate matrix coefficients
         ! =============================
 
-        ! u_perp > 0: flow is exiting this vertex into vertex vj
+        ! u_vav_perp > 0: flow is exiting this vertex into vertex vj
         if (fraction_margin_tot( vi) >= 1._dp) then
-          cM_divQ( 0) = cM_divQ( 0) + L_c * max( 0._dp, u_perp( vi, ci)) / A_i
+          cM_divQ( 0) = cM_divQ( 0) + L_c * max( 0._dp, vel%u_vav_perp( vi, ci)) / A_i
         else
           ! if this vertex is not completely covering its assigned area, then don't let ice out of it yet.
         end if
 
-        ! u_perp < 0: flow is entering this vertex from vertex vj
+        ! u_vav_perp < 0: flow is entering this vertex from vertex vj
         if (fraction_margin_tot( vj) >= 1._dp) then
-          cM_divQ( ci) = L_c * MIN( 0._dp, u_perp( vi, ci)) / A_i
+          cM_divQ( ci) = L_c * MIN( 0._dp, vel%u_vav_perp( vi, ci)) / A_i
         else
           ! if that vertex is not completely covering its assigned area, then don't let ice out of it yet.
         end if
 
-      end do ! do ci = 1, mesh%nC( vi)
+      end do
 
       ! Add coefficients to matrix
       call M_divQ%add_entry( vi, vi, cM_divQ( 0))
       do ci = 1, mesh%nC( vi)
         vj = mesh%C(  vi,ci)
         call M_divQ%add_entry( vi, vj, cM_divQ( ci))
-      end do ! do ci = 1, mesh%nC( vi)
+      end do
 
-    end do ! do vi = mesh%vi1, mesh%vi2
+    end do
 
     call M_divQ%finalise
 
@@ -122,17 +125,28 @@ contains
     ! In/output variables:
     type(type_mesh),                        intent(in   ) :: mesh
     logical,  dimension(mesh%vi1:mesh%vi2), intent(in   ) :: mask_noice
-    real(dp), dimension(mesh%vi1:mesh%vi2), intent(inout) :: Hi
+    real(dp), dimension(:), target,         intent(inout) :: Hi
 
     ! Local variables:
-    character(len=1024), parameter :: routine_name = 'apply_mask_noice_direct'
-    integer                        :: vi
+    character(len=1024), parameter  :: routine_name = 'apply_mask_noice_direct'
+    integer                         :: vi
+    real(dp), dimension(:), pointer :: Hi_nih, Hi_loc
 
     ! Add routine to path
     call init_routine( routine_name)
 
+    ! Support both distributed and hybrid distributed/shared versions of Hi
+    if (size( Hi,1) == mesh%pai_V%n_loc) then
+      Hi_loc( mesh%vi1:mesh%vi2) => Hi
+    elseif (size( Hi,1) == mesh%pai_V%n_nih) then
+      Hi_nih( mesh%pai_V%i1_nih:mesh%pai_V%i2_nih) => Hi
+      Hi_loc( mesh%vi1:mesh%vi2) => Hi_nih( mesh%vi1:mesh%vi2)
+    else
+      call crash('Hi has invalid size')
+    end if
+
     do vi = mesh%vi1, mesh%vi2
-      if (mask_noice( vi)) Hi( vi) = 0._dp
+      if (mask_noice( vi)) Hi_loc( vi) = 0._dp
     end do
 
     ! Finalise routine path
@@ -140,13 +154,13 @@ contains
 
   end subroutine apply_mask_noice_direct
 
-  subroutine calc_flux_limited_timestep( mesh, Hi, dHi_dt, dt_max)
+  subroutine calc_flux_limited_timestep( mesh, geom, dHi_dt, dt_max)
     !< Calculate the largest time step that does not result in more
     !< ice flowing out of a cell than is contained within it.
 
     ! In/output variables:
     type(type_mesh),                        intent(in   ) :: mesh
-    real(dp), dimension(mesh%vi1:mesh%vi2), intent(in   ) :: Hi
+    class(atype_ice_geometry_model_data),   intent(in   ) :: geom
     real(dp), dimension(mesh%vi1:mesh%vi2), intent(in   ) :: dHi_dt
     real(dp),                               intent(  out) :: dt_max
 
@@ -165,11 +179,11 @@ contains
     ! Loop over each mesh vertex within this process
     do vi = mesh%vi1, mesh%vi2
       ! if there is [non-negligible] ice, and there is mass loss
-      if (Hi( vi) > C%Hi_min .and. dHi_dt( vi) < 0._dp) then
+      if (geom%Hi( vi) > C%Hi_min .and. dHi_dt( vi) < 0._dp) then
 
         ! Compute time step limit (in yr) based on
         ! available ice thickness and flux divergence
-        dt_lim( vi) = Hi( vi) / max( dHi_dt( vi), 1E-9_dp)
+        dt_lim( vi) = geom%Hi( vi) / max( dHi_dt( vi), 1E-9_dp)
 
       end if
     end do

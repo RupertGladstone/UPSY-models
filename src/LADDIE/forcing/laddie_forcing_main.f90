@@ -13,7 +13,7 @@ module laddie_forcing_main
   use model_configuration, only: C
   use reference_geometry_types, only: type_reference_geometry
   use mesh_types, only: type_mesh
-  use ice_model_types, only: type_ice_model
+  use ice_model_main, only: type_ice_model
   use ocean_model_types, only: type_ocean_model
   use laddie_forcing_types, only: type_laddie_forcing
   use netcdf_io_main
@@ -24,7 +24,8 @@ module laddie_forcing_main
   use ice_model_memory, only: allocate_ice_model
   use thermodynamics_main, only: initialise_ice_temperature_uniform
   use masks_mod, only: calc_mask_ROI, calc_mask_noice, calc_mask_SGD
-  use conservation_of_mass_main, only: apply_ice_thickness_BC_explicit, apply_mask_noice_direct
+  use conservation_of_mass_main, only: apply_mask_noice_direct
+  use ice_thickness_boundary_conditions, only: apply_ice_thickness_BC_explicit
   use ice_geometry_basics, only: Hi_from_Hb_Hs_and_SL
   use ocean_main, only: initialise_ocean_model
   use projections, only: inverse_oblique_sg_projection
@@ -90,7 +91,7 @@ contains
     end do
 
     ! Calculate the no-ice mask
-    call calc_mask_noice( mesh, ice)
+    call calc_mask_noice( mesh, ice%mask_noice)
 
     ! Apply no-ice mask
     call apply_mask_noice_direct( mesh, ice%mask_noice, ice%geom%Hi)
@@ -108,10 +109,10 @@ contains
     call ice%geom%determine_masks()
 
     ! Compute mask_ROI only at initialisation, (NOTE: This works only for one single ROI right now)
-    call calc_mask_ROI( mesh, ice, 'ANT')
+    call calc_mask_ROI( mesh, 'ANT', ice%mask_ROI, ice%nROI)
 
     ! Compute mask_SGD only at initialisation
-    call calc_mask_SGD( mesh, ice)
+    call calc_mask_SGD( mesh, ice%mask_SGD)
 
     ! Effective ice thickness
     ! =======================
@@ -126,13 +127,13 @@ contains
     ! ===============
 
     ! Only uniform for now
-    call initialise_ice_temperature_uniform( mesh, ice, 'ANT')
+    call initialise_ice_temperature_uniform( mesh, ice, ice%geom, 'ANT')
 
 
     ! Ocean forcing
     ! =============
 
-    call initialise_ocean_model( mesh, ice, ocean, 'ANT', C%start_time_of_run, refgeo, refgeo)
+    call initialise_ocean_model( mesh, ice%geom, ocean, 'ANT', C%start_time_of_run, refgeo, refgeo)
 
     ! Allocate forcing
     ! ================

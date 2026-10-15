@@ -10,7 +10,8 @@ module inversion_utilities
   use model_configuration, only: C
   use region_types, only: type_model_region
   use mesh_types, only: type_mesh
-  use ice_model_types, only: type_ice_model
+  use ice_model_data, only: atype_ice_model_data
+  use ice_geometry_model_data, only: atype_ice_geometry_model_data
   use reference_geometry_types, only: type_reference_geometry
   use plane_geometry, only: is_in_polygon
   use netcdf_io_main
@@ -18,7 +19,6 @@ module inversion_utilities
   use mesh_utilities, only: extrapolate_Gaussian, interpolate_to_point_dp_2D
   use conservation_of_mass_main, only: calc_dHi_dt
   use mpi_distributed_memory, only: gather_to_all
-  use map_velocities_to_c_grid, only: map_velocities_from_b_to_c_2D
   use checksum_mod, only: checksum
 
   implicit none
@@ -33,9 +33,9 @@ contains
     !< Prescribe a target dHi_dt from a file without a time dimension
 
     ! In- and output variables
-    type(type_mesh),      intent(in   ) :: mesh
-    type(type_ice_model), intent(inout) :: ice
-    character(len=3),     intent(in   ) :: region_name
+    type(type_mesh),             intent(in   ) :: mesh
+    class(atype_ice_model_data), intent(inout) :: ice
+    character(len=3),            intent(in   ) :: region_name
 
     ! Local variables:
     character(len=1024), parameter :: routine_name = 'initialise_dHi_dt_target'
@@ -89,13 +89,13 @@ contains
 
   end subroutine initialise_dHi_dt_target
 
-  subroutine MISMIPplus_adapt_flow_factor( mesh, ice)
+  subroutine MISMIPplus_adapt_flow_factor( mesh, geom)
     !< Automatically adapt the uniform flow factor A to achieve
     ! a steady-state mid-stream grounding-line position at x = 450 km in the MISMIP+ experiment
 
     ! In- and output variables
-    type(type_mesh),      intent(in   ) :: mesh
-    type(type_ice_model), intent(in   ) :: ice
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
 
     ! Local variables:
     character(len=1024), parameter :: routine_name = 'MISMIPplus_adapt_flow_factor'
@@ -122,7 +122,7 @@ contains
       pp   = qq
       TAFp = TAFq
       qq = pp + [C%maximum_resolution_grounding_line, 0._dp]
-      call interpolate_to_point_dp_2D( mesh, ice%geom%TAF, qq, ti_in, TAFq)
+      call interpolate_to_point_dp_2D( mesh, geom%TAF, qq, ti_in, TAFq)
     end do
 
     lambda_GL = TAFp / (TAFp - TAFq)

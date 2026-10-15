@@ -11,11 +11,14 @@ MODULE basal_hydrology_new
   USE model_configuration                                    , ONLY: C
   USE parameters
   USE mesh_types                                             , ONLY: type_mesh
-  USE ice_model_types                                        , ONLY: type_ice_model
+  USE ice_model_data                                         , ONLY: atype_ice_model_data
+  USE ice_geometry_model_data                                , ONLY: atype_ice_geometry_model_data
+  USE ice_velocity_model_data                                , ONLY: atype_ice_velocity_model_data
   USE basal_hydrology_model_types                            , ONLY: type_basal_hydrology_model
   use netcdf_io_main
   USE mesh_disc_apply_operators                              , ONLY: ddx_a_b_2D, ddy_a_b_2D, map_a_b_2D, map_b_a_2D, ddx_a_a_2D, ddy_a_a_2D
   use mpi_distributed_memory                                 , only: gather_to_all
+  use mpi_distributed_shared_memory, only: gather_dist_shared_to_all
   use mesh_halo_exchange                                     , only: exchange_halos
   use CSR_matrix_vector_multiplication                       , only: multiply_CSR_matrix_with_vector_1D_wrapper
   use mesh_utilities                                         , only: find_containing_vertex
@@ -30,14 +33,16 @@ MODULE basal_hydrology_new
 CONTAINS
 
   ! Run basal hydrology model x times
-  subroutine basal_hydrology_leg(mesh, ice, basal_hydro, time)
+  subroutine basal_hydrology_leg(mesh, ice, geom, vel, basal_hydro, time)
     !< Main basal hydrology subroutine >!
 
     ! In/output variables:
-    type(type_mesh),                  intent(in   ) :: mesh
-    type(type_ice_model),             intent(inout) :: ice
-    type(type_basal_hydrology_model), intent(inout) :: basal_hydro
-    real(dp),                         intent(in   ) :: time
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_model_data),          intent(inout) :: ice
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    class(atype_ice_velocity_model_data), intent(in   ) :: vel
+    type(type_basal_hydrology_model),     intent(inout) :: basal_hydro
+    real(dp),                             intent(in   ) :: time
 
     ! Local variables:
     character(len=1024), parameter :: routine_name = 'basal_hydrology_leg'
@@ -55,7 +60,7 @@ CONTAINS
 
     ! Loop until convergence time is reached
     time_loop: do while (duration < time_until_convergence)
-      call basal_hydrology(mesh, ice, basal_hydro, duration + time*sec_per_year)
+      call basal_hydrology(mesh, ice, geom, vel, basal_hydro, duration + time*sec_per_year)
       duration = duration + basal_hydro%dt
       !if (par%primary) then
       !  write(*,*) "Duration so far basal hydro: ", duration
@@ -75,12 +80,14 @@ CONTAINS
 
 
   ! Run a single leg of basal hydrology model
-  subroutine basal_hydrology(mesh, ice, basal_hydro, time)
+  subroutine basal_hydrology(mesh, ice, geom, vel, basal_hydro, time)
     ! In/output variables:
-    type(type_mesh),                  intent(in   ) :: mesh
-    type(type_ice_model),             intent(inout) :: ice
-    type(type_basal_hydrology_model), intent(inout) :: basal_hydro
-    real(dp),                         intent(in)    :: time
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_model_data),          intent(inout) :: ice
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    class(atype_ice_velocity_model_data), intent(in   ) :: vel
+    type(type_basal_hydrology_model),     intent(inout) :: basal_hydro
+    real(dp),                             intent(in)    :: time
 
     ! Local variables:
     character(len=1024), parameter :: routine_name = 'basal_hydrology'
@@ -100,46 +107,46 @@ CONTAINS
     call init_routine( routine_name)
 
     ! Convert basal velocities from ice model to SI units
-    call convert_ice_to_SI(mesh, ice, basal_hydro)
+    call convert_ice_to_SI(mesh, vel, basal_hydro)
 
     ! Initialise basal hydro masks (where is the ice grounded and is basal hydrology possible)
-    call calc_basal_hydro_mask_a_b(mesh, ice, basal_hydro)
+    call calc_basal_hydro_mask_a_b(mesh, geom, basal_hydro)
 
     ! Start with W, W_til and P and make sure they are all within their bounds
-    call set_within_bounds(mesh, ice, basal_hydro, W_min, W_max, W_min_til, C%Salle2025_W_til_max, P_min)
+    call set_within_bounds(mesh, geom, basal_hydro, W_min, W_max, W_min_til, C%Salle2025_W_til_max, P_min)
 
     ! Calculate some variables for the calculation of the timestep and u and v, namely the hydraulic potential R,
-    call calc_R(mesh, ice, basal_hydro, .false.)
+    call calc_R(mesh, geom, basal_hydro, .false.)
 
     ! the conducitivity K
-    call calc_K(mesh, ice, basal_hydro)
+    call calc_K(mesh, basal_hydro)
 
     ! the diffusivity D
     call calc_D(mesh, basal_hydro)
 
     ! and eventually u and v
-    call calc_uv(mesh, ice, basal_hydro)
+    call calc_uv(mesh, basal_hydro)
 
     ! Get the timestep
     ! Mainly inspired by calc_critical_timestep_SIA subroutine in time_step_criteria.f90
     call get_basal_hydro_timestep(mesh, basal_hydro, dt, dt_hydro)
 
     ! Compute the advective fluxes (Q) on the staggered grid
-    call calc_divQ(mesh, ice, basal_hydro)
+    call calc_divQ(mesh, geom, basal_hydro)
 
     ! Compute how much goes in the water layer and how much goes in the till
-    call calc_q_til(mesh, ice, basal_hydro, C%Salle2025_W_til_max)
+    call calc_q_til(mesh, basal_hydro, C%Salle2025_W_til_max)
 
     ! If icefree set next timestep of P to 0, if floating set to overburden pressure
     ! If W at this timestep is 0 and if icefree and floating are both false, set next timestep of P to 0 (any sliding) or overburden pressure (no sliding)
     ! Otherwise, compute next timestep of P using the equation in the paper (Bueler and Van Pelt 2015)
     ! Calculate the pressure at the next timestep
-    call calc_P_next(mesh, ice, basal_hydro, P_min)
+    call calc_P_next(mesh, ice, geom, vel, basal_hydro, P_min)
 
     ! If icefree or float, then set next timestep of W to 0.
     ! Otherwise, compute next timestep of W using the equation in the paper
     ! Calculate W and W_til at the next timestep
-    call calc_W_water_W_til_next(mesh, ice, basal_hydro, W_min, W_max, W_min_til, C%Salle2025_W_til_max)
+    call calc_W_water_W_til_next(mesh, basal_hydro, W_min, W_max, W_min_til, C%Salle2025_W_til_max)
 
     ! Calculate output to ice model (effective pressure and yield stress)
     call calc_N_til(mesh, basal_hydro, C%Salle2025_W_til_max, .true.)
@@ -160,12 +167,11 @@ CONTAINS
   end subroutine basal_hydrology
 
 
-  subroutine allocate_basal_hydro( mesh, ice, basal_hydro)
+  subroutine allocate_basal_hydro( mesh, basal_hydro)
     !< allocate memory for the basal hydrology model variables >!
 
     ! In/output variables:
     type(type_mesh),                    intent(in   ) :: mesh
-    type(type_ice_model),               intent(in   ) :: ice
     type(type_basal_hydrology_model),   intent(  out) :: basal_hydro
 
     ! Local variables:
@@ -231,7 +237,7 @@ CONTAINS
     allocate(basal_hydro%phi(mesh%vi1:mesh%vi2), source = C%Salle2025_phi) !degrees
 
     !Calculate the matrix to go from b to c grid
-    call calc_M_b_c( mesh, ice, basal_hydro)
+    call calc_M_b_c( mesh, basal_hydro)
 
     do vi = mesh%vi1, mesh%vi2
       ! Initial basal water depth
@@ -252,7 +258,7 @@ CONTAINS
       !end if
 
       ! Initialise pressure with overburden pressure (for now at least)
-      !basal_hydro%P( vi) = rho_i * g * ice%geom%Hi( vi)
+      !basal_hydro%P( vi) = rho_i * g * geom%Hi( vi)
     end do
 
     ! Finalise routine path
@@ -262,13 +268,13 @@ CONTAINS
 
 
 
-  subroutine convert_ice_to_SI(mesh, ice, basal_hydro)
+  subroutine convert_ice_to_SI( mesh, vel, basal_hydro)
     !< Convert ice model variables to SI units for basal hydrology model >!
 
     ! In/output variables:
-    type(type_mesh),                    intent(in   ) :: mesh
-    type(type_ice_model),               intent(in   ) :: ice
-    type(type_basal_hydrology_model),   intent(inout) :: basal_hydro
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_velocity_model_data), intent(in   ) :: vel
+    type(type_basal_hydrology_model),     intent(inout) :: basal_hydro
 
     ! Local variables:
     character(len=1024) :: routine_name = 'convert_ice_to_SI'
@@ -279,9 +285,9 @@ CONTAINS
 
     do vi = mesh%vi1, mesh%vi2
       ! Convert ice velocities to m/s
-      basal_hydro%ice_u_base( vi) = ice%u_base( vi)/sec_per_year
-      basal_hydro%ice_v_base( vi) = ice%v_base( vi)/sec_per_year
-      basal_hydro%ice_w_base( vi) = ice%w_base( vi)/sec_per_year
+      basal_hydro%ice_u_base( vi) = vel%u_base( vi)/sec_per_year
+      basal_hydro%ice_v_base( vi) = vel%v_base( vi)/sec_per_year
+      basal_hydro%ice_w_base( vi) = vel%w_base( vi)/sec_per_year
     end do
     !call checksum(mesh%pai_V, basal_hydro%ice_u_base, "ice_u_base after conversion to SI")
     !call checksum(mesh%pai_V, basal_hydro%ice_v_base, "ice_v_base after conversion to SI")
@@ -293,14 +299,14 @@ CONTAINS
   end subroutine convert_ice_to_SI
 
 
-  subroutine set_within_bounds( mesh, ice, basal_hydro, W_min, W_max, W_min_til, W_max_til, P_min)
+  subroutine set_within_bounds( mesh, geom, basal_hydro, W_min, W_max, W_min_til, W_max_til, P_min)
     !< Setting P, W, W_til within their bounds >!
 
     ! In/output variables:
-    type(type_mesh),                    intent(in   ) :: mesh
-    type(type_ice_model),               intent(in   ) :: ice
-    type(type_basal_hydrology_model),   intent(inout) :: basal_hydro
-    real(dp),                           intent(in   ) :: W_min, W_max, W_min_til, W_max_til, P_min
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    type(type_basal_hydrology_model),     intent(inout) :: basal_hydro
+    real(dp),                             intent(in   ) :: W_min, W_max, W_min_til, W_max_til, P_min
 
     ! Local variables:
     character(len=1024) :: routine_name = 'set_within_bounds'
@@ -313,7 +319,7 @@ CONTAINS
     call init_routine( routine_name)
 
     do vi = mesh%vi1, mesh%vi2
-      basal_hydro%P_o( vi)     = rho_i * g * ice%geom%Hi( vi) ! Calculate overburden pressure
+      basal_hydro%P_o( vi)     = rho_i * g * geom%Hi( vi) ! Calculate overburden pressure
       basal_hydro%W( vi)       = min( max( basal_hydro%W( vi),       W_min),       W_max) ! Bueler and Van Pelt 2015 eq. 33 (In this case we also give a (very high) max W but this is not in the paper. Could theoretically be used to avoid getting extremely small timesteps due to very high W for example)
       basal_hydro%W_til( vi)   = min( max( basal_hydro%W_til( vi),   W_min_til),   W_max_til) ! Bueler and Van Pelt 2015 eq. 33
       basal_hydro%P( vi)       = min( max( basal_hydro%P( vi),       P_min),       basal_hydro%P_o( vi)) ! Bueler and Van Pelt 2015 eq. 33
@@ -412,13 +418,13 @@ CONTAINS
 
 
 
-  subroutine calc_divQ( mesh, ice, basal_hydro)
+  subroutine calc_divQ( mesh, geom, basal_hydro)
     !< Calculating the divergence of Q >!
 
     ! In/output variables:
-    type(type_mesh),                    intent(in   ) :: mesh
-    type(type_ice_model),               intent(in   ) :: ice
-    type(type_basal_hydrology_model),   intent(inout) :: basal_hydro
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    type(type_basal_hydrology_model),     intent(inout) :: basal_hydro
 
     ! Local variables:
     character(len=1024)                    :: routine_name = 'calc_divQ'
@@ -426,7 +432,7 @@ CONTAINS
     logical,  dimension(mesh%nV)           :: mask_grounded_ice_tot
     real(dp), dimension(mesh%nE)           :: u_c_tot, v_c_tot
     real(dp), dimension(mesh%nV)           :: W_tot
-    real(dp)                               :: u_perp
+    real(dp)                               :: u_vav_perp
     real(dp), dimension(mesh%vi1:mesh%vi2) :: D_nabla_W_x, D_nabla_W_y, dD_nabla_W_x, dD_nabla_W_y !Needed for the calculation of the diffusion term
 
     ! Add routine to path
@@ -434,7 +440,7 @@ CONTAINS
 
     ! This is very similar to what is done in laddie_thickness.90 in the compute_divQH subroutine
 
-    call gather_to_all(ice%geom%mask_grounded_ice, mask_grounded_ice_tot)
+    call gather_dist_shared_to_all( mesh%pai_V, geom%mask_grounded_ice, mask_grounded_ice_tot)
     call gather_to_all(basal_hydro%u_c, u_c_tot)
     call gather_to_all(basal_hydro%v_c, v_c_tot)
     call gather_to_all(basal_hydro%W, W_tot)
@@ -460,7 +466,7 @@ CONTAINS
       ! Initialise divQ with zeros
       basal_hydro%divQ( vi) = 0.0_dp
 
-      if (.not. ice%geom%mask_grounded_ice( vi)) cycle ! No flux divergence calculation for non-grounded ice
+      if (.not. geom%mask_grounded_ice( vi)) cycle ! No flux divergence calculation for non-grounded ice
 
       ! Loop over all connections of vertex vi
       DO ci = 1, mesh%nC( vi)
@@ -472,19 +478,19 @@ CONTAINS
         ei = mesh%VE( vi,ci)
 
         ! Calculate vertically averaged ice velocity component perpendicular to this shared Voronoi cell boundary section
-        u_perp = u_c_tot( ei) * mesh%D_x( vi, ci)/mesh%D( vi, ci) + v_c_tot( ei) * mesh%D_y( vi, ci)/mesh%D( vi, ci)
+        u_vav_perp = u_c_tot( ei) * mesh%D_x( vi, ci)/mesh%D( vi, ci) + v_c_tot( ei) * mesh%D_y( vi, ci)/mesh%D( vi, ci)
 
         ! Calculate upwind momentum divergence
         ! =============================
-        ! u_perp > 0: flow is exiting this vertex into vertex vj
-        IF (u_perp > 0) THEN
-          basal_hydro%divQ( vi) = basal_hydro%divQ( vi) + mesh%Cw( vi, ci) * u_perp * W_tot( vi) / mesh%A( vi) ! Bueler and Van Pelt 2015 eq. 43 (for the first two terms for one connection of the Voronoi cell, the diffusion term is added later)
-        ! u_perp < 0: flow is entering this vertex from vertex vj
+        ! u_vav_perp > 0: flow is exiting this vertex into vertex vj
+        IF (u_vav_perp > 0) THEN
+          basal_hydro%divQ( vi) = basal_hydro%divQ( vi) + mesh%Cw( vi, ci) * u_vav_perp * W_tot( vi) / mesh%A( vi) ! Bueler and Van Pelt 2015 eq. 43 (for the first two terms for one connection of the Voronoi cell, the diffusion term is added later)
+        ! u_vav_perp < 0: flow is entering this vertex from vertex vj
         ELSE
           ! Skip connection if neighbour is not grounded. No flux across grounding line
           ! Can be made more flexible when accounting for partial cells (PMP instead of FCMP)
           IF (mask_grounded_ice_tot( vj)) then
-            basal_hydro%divQ( vi) = basal_hydro%divQ( vi) + mesh%Cw( vi, ci) * u_perp * W_tot( vj) / mesh%A( vi)
+            basal_hydro%divQ( vi) = basal_hydro%divQ( vi) + mesh%Cw( vi, ci) * u_vav_perp * W_tot( vj) / mesh%A( vi)
           END IF
         END IF
 
@@ -506,14 +512,16 @@ CONTAINS
   end subroutine calc_divQ
 
 
-  subroutine calc_P_next( mesh, ice, basal_hydro, P_min)
+  subroutine calc_P_next( mesh, ice, geom, vel, basal_hydro, P_min)
     !< Calculating P for the next timestep >!
 
     ! In/output variables:
-    type(type_mesh),                    intent(in   ) :: mesh
-    type(type_ice_model),               intent(in   ) :: ice
-    type(type_basal_hydrology_model),   intent(inout) :: basal_hydro
-    real(dp),                           intent(in   ) :: P_min
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_model_data),          intent(in   ) :: ice
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    class(atype_ice_velocity_model_data), intent(in   ) :: vel
+    type(type_basal_hydrology_model),     intent(inout) :: basal_hydro
+    real(dp),                             intent(in   ) :: P_min
 
     ! Local variables:
     character(len=1024) :: routine_name = 'calc_P_next'
@@ -529,14 +537,14 @@ CONTAINS
     call init_routine( routine_name)
 
     ! calculate opening O and closing C terms
-    call calc_opening_rate(mesh, ice, basal_hydro)
-    call calc_closing_rate(mesh, ice, basal_hydro)
+    call calc_opening_rate( mesh, basal_hydro)
+    call calc_closing_rate( mesh, basal_hydro)
 
     ! Calculate next timestep of P
     do vi = mesh%vi1, mesh%vi2
-      if (ice%geom%mask_icefree_land( vi)) then
+      if (geom%mask_icefree_land( vi)) then
         basal_hydro%P( vi) =  0.0_dp
-      else if (ice%geom%mask_floating_ice( vi)) then
+      else if (geom%mask_floating_ice( vi)) then
         basal_hydro%P( vi) = basal_hydro%P_o( vi)
       else if (basal_hydro%W( vi) == 0.0_dp .and. basal_hydro%mask_a( vi)) then
         if (sliding) then
@@ -563,12 +571,11 @@ CONTAINS
 
 
 
-  subroutine calc_q_til( mesh, ice, basal_hydro, W_max_til)
+  subroutine calc_q_til( mesh, basal_hydro, W_max_til)
     !< Calculating the amount of water ending up in the till and the water layer >!
 
     ! In/output variables:
     type(type_mesh),                    intent(in   ) :: mesh
-    type(type_ice_model),               intent(in   ) :: ice
     type(type_basal_hydrology_model),   intent(inout) :: basal_hydro
     real(dp),                           intent(in   ) :: W_max_til
 
@@ -595,12 +602,11 @@ CONTAINS
 
 
 
-  subroutine calc_W_water_W_til_next( mesh, ice, basal_hydro, W_min, W_max, W_min_til, W_max_til)
+  subroutine calc_W_water_W_til_next( mesh, basal_hydro, W_min, W_max, W_min_til, W_max_til)
     !< Calculating W in till and in water layer for the next timestep >!
 
     ! In/output variables:
     type(type_mesh),                    intent(in   ) :: mesh
-    type(type_ice_model),               intent(in   ) :: ice
     type(type_basal_hydrology_model),   intent(inout) :: basal_hydro
     real(dp),                           intent(in   ) :: W_min, W_max, W_min_til, W_max_til
 
@@ -731,12 +737,11 @@ CONTAINS
 
 
   ! Comes from Laddie_operators
-  subroutine calc_M_b_c( mesh, ice, basal_hydro)
+  subroutine calc_M_b_c( mesh, basal_hydro)
     ! Calculate mapping matrix from b-grid to c-grid
 
     ! In/output variables:
     type(type_mesh),                        intent(in   )    :: mesh
-    type(type_ice_model),                   intent(in   )    :: ice
     type(type_basal_hydrology_model),       intent(inout)    :: basal_hydro
 
     ! Local variables:
@@ -820,13 +825,13 @@ CONTAINS
 
 
 
-  subroutine calc_basal_hydro_mask_a_b(mesh, ice, basal_hydro)
+  subroutine calc_basal_hydro_mask_a_b( mesh, geom, basal_hydro)
     !< Calculating the basal hydrology mask on a and b-grid >!
 
     ! In/output variables:
-    type(type_mesh),                    intent(in   ) :: mesh
-    type(type_ice_model),               intent(in   ) :: ice
-    type(type_basal_hydrology_model),   intent(inout) :: basal_hydro
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
+    type(type_basal_hydrology_model),     intent(inout) :: basal_hydro
 
     ! Local variables:
     character(len=1024)                                   :: routine_name = 'calc_basal_hydro_mask_a_b'
@@ -839,7 +844,7 @@ CONTAINS
     ! Define a-grid mask directly from ice model grounded ice mask
     do vi = mesh%vi1, mesh%vi2
       basal_hydro%mask_a( vi) = .false.
-      basal_hydro%mask_a( vi) = ice%geom%mask_grounded_ice( vi)
+      basal_hydro%mask_a( vi) = geom%mask_grounded_ice( vi)
     end do
 
     call gather_to_all(basal_hydro%mask_a, mask_a_tot)
@@ -893,13 +898,13 @@ CONTAINS
   end subroutine calc_basal_hydro_mask_W
 
 
-  subroutine calc_R( mesh, ice, basal_hydro, test)
+  subroutine calc_R( mesh, geom, basal_hydro, test)
     ! Calculate subglacial water pressure R
 
     ! In/output variables:
     type(type_mesh),                        intent(in   )    :: mesh
     type(type_basal_hydrology_model),       intent(inout)    :: basal_hydro
-    type(type_ice_model),                   intent(in   )    :: ice
+    class(atype_ice_geometry_model_data),   intent(in   ) :: geom
     logical,                                intent(in   )    :: test
 
     ! Local variables:
@@ -913,9 +918,9 @@ CONTAINS
 
     do vi = mesh%vi1, mesh%vi2
       if (test) then                          ! For testing we take R without the pressure component
-        basal_hydro%R( vi) = (ice%geom%Hb( vi) + basal_hydro%W( vi))*rho_w*g
+        basal_hydro%R( vi) = (geom%Hb( vi) + basal_hydro%W( vi))*rho_w*g
       else
-        basal_hydro%R( vi) = (ice%geom%Hb( vi) + basal_hydro%W( vi))*rho_w*g + basal_hydro%P( vi) ! Bueler and Van Pelt 2015 eq. 2
+        basal_hydro%R( vi) = (geom%Hb( vi) + basal_hydro%W( vi))*rho_w*g + basal_hydro%P( vi) ! Bueler and Van Pelt 2015 eq. 2
       end if
     end do
     !call checksum(mesh%pai_V, basal_hydro%R, "basal_hydro%R")
@@ -926,12 +931,11 @@ CONTAINS
   end subroutine calc_R
 
 
-  subroutine calc_K( mesh, ice, basal_hydro)
+  subroutine calc_K( mesh, basal_hydro)
     ! Calculate the effective conductivity K
 
     ! In/output variables:
     type(type_mesh),                        intent(in   )    :: mesh
-    type(type_ice_model),                   intent(in   )    :: ice
     type(type_basal_hydrology_model),       intent(inout)    :: basal_hydro
 
     ! Local variables:
@@ -966,12 +970,11 @@ CONTAINS
 
 
 
-  subroutine calc_uv( mesh, ice, basal_hydro)
+  subroutine calc_uv( mesh, basal_hydro)
     ! Calculate u and v from K and R
 
     ! In/output variables:
     type(type_mesh),                        intent(in   )    :: mesh
-    type(type_ice_model),                   intent(in   )    :: ice
     type(type_basal_hydrology_model),       intent(inout)    :: basal_hydro
 
     ! Local variables:
@@ -996,7 +999,7 @@ CONTAINS
     !call checksum(mesh%pai_Tri, basal_hydro%v_b, "basal_hydro%v_b")
 
     ! Remap to c-grid velocities
-    call calc_M_b_c( mesh, ice, basal_hydro)
+    call calc_M_b_c( mesh, basal_hydro)
     call map_UV_b_c( mesh, basal_hydro)
 
 
@@ -1039,12 +1042,11 @@ CONTAINS
 
 
 
-  subroutine calc_opening_rate( mesh, ice, basal_hydro)
+  subroutine calc_opening_rate( mesh, basal_hydro)
     ! Calculate opening rate
 
     ! In/output variables:
     type(type_mesh),                        intent(in   )    :: mesh
-    type(type_ice_model),                   intent(in   )    :: ice
     type(type_basal_hydrology_model),       intent(inout)    :: basal_hydro
 
     ! Local variables:
@@ -1072,12 +1074,11 @@ CONTAINS
 
 
 
-  subroutine calc_closing_rate( mesh, ice, basal_hydro)
+  subroutine calc_closing_rate( mesh, basal_hydro)
     ! Calculate opening rate
 
     ! In/output variables:
     type(type_mesh),                        intent(in   )    :: mesh
-    type(type_ice_model),                   intent(in   )    :: ice
     type(type_basal_hydrology_model),       intent(inout)    :: basal_hydro
 
     ! Local variables:
@@ -1104,12 +1105,11 @@ CONTAINS
 
 
 
-  subroutine apply_W_thickness_BC_explicit( mesh, ice, basal_hydro)
+  subroutine apply_W_thickness_BC_explicit( mesh, basal_hydro)
     !< Apply boundary conditions to the water layer thickness on the domain border directly
 
     ! In/output variables:
     type(type_mesh),                        intent(in   ) :: mesh
-    type(type_ice_model),                   intent(in   ) :: ice
     type(type_basal_hydrology_model),       intent(inout) :: basal_hydro
 
     ! Local variables:
@@ -1250,12 +1250,12 @@ CONTAINS
 
 
 
-  subroutine apply_W_thickness_gl_explicit( mesh, ice, basal_hydro)
+  subroutine apply_W_thickness_gl_explicit( mesh, geom, basal_hydro)
     !< Apply boundary conditions to the water layer thickness on the domain border directly
 
     ! In/output variables:
     type(type_mesh),                        intent(in   ) :: mesh
-    type(type_ice_model),                   intent(in   ) :: ice
+    class(atype_ice_geometry_model_data),   intent(in   ) :: geom
     type(type_basal_hydrology_model),       intent(inout) :: basal_hydro
 
     ! Local variables:
@@ -1276,7 +1276,7 @@ CONTAINS
 
     call gather_to_all(basal_hydro%mask_W, mask_W_tot)
     call gather_to_all(basal_hydro%W, W_tot)
-    call gather_to_all(ice%geom%mask_gl_gr, mask_gl_gr_tot)
+    call gather_dist_shared_to_all( mesh%pai_V, geom%mask_gl_gr, mask_gl_gr_tot)
     call gather_to_all(basal_hydro%mask_a, mask_a_tot)
 
     ! Slightly adjusted version of calc_n_interior_neighbours
@@ -1298,7 +1298,7 @@ CONTAINS
     ! ===========================================================================
 
     do vi = mesh%vi1, mesh%vi2
-      if (ice%geom%mask_gl_gr( vi)) then
+      if (geom%mask_gl_gr( vi)) then
         ! For now at least just hard-coded to infinite
         BC_H = 'infinite'
 
@@ -1339,7 +1339,7 @@ CONTAINS
 
 
     do vi = mesh%vi1, mesh%vi2
-      if (ice%geom%mask_gl_gr( vi)) then
+      if (geom%mask_gl_gr( vi)) then
         BC_H = 'infinite'
 
         select case (BC_H)
@@ -1428,7 +1428,7 @@ CONTAINS
 
     ! In/output variables:
     type(type_mesh),                        intent(in   )    :: mesh
-    type(type_ice_model),                   intent(inout)    :: ice
+    class(atype_ice_model_data),            intent(inout)    :: ice
     type(type_basal_hydrology_model),       intent(inout)    :: basal_hydro
 
     ! Local variables:
@@ -1454,13 +1454,12 @@ CONTAINS
 
 
 
-  SUBROUTINE remap_basal_hydro_model_Salle2025( mesh_old, mesh_new, ice, basal_hydro, time)
+  SUBROUTINE remap_basal_hydro_model_Salle2025( mesh_old, mesh_new, basal_hydro, time)
     ! Remap the BMB model
 
     ! In- and output variables
     TYPE(type_mesh),                        INTENT(IN)    :: mesh_old
     TYPE(type_mesh),                        INTENT(IN)    :: mesh_new
-    TYPE(type_ice_model),                   INTENT(IN)    :: ice
     TYPE(type_basal_hydrology_model),       INTENT(INOUT) :: basal_hydro
     REAL(dp),                               INTENT(IN)    :: time
 
@@ -1527,7 +1526,7 @@ CONTAINS
     end do
 
     ! Recalculate the matrix to go from b to c-grid
-    call calc_M_b_c( mesh_new, ice, basal_hydro)
+    call calc_M_b_c( mesh_new, basal_hydro)
 
     !write(*,*) "Doing God's work"
 

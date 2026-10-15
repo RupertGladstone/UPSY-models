@@ -13,43 +13,50 @@ module ice_geometry_model_data
   type, abstract, extends(atype_model) :: atype_ice_geometry_model_data
 
     ! Primary ice geometry fields
-    real(dp), dimension(:  ), allocatable :: Hi                      ! [m]       Ice thickness
-    real(dp), dimension(:  ), allocatable :: Hb                      ! [m]       Bedrock elevation (w.r.t. PD sea level)
-    real(dp), dimension(:  ), allocatable :: SL                      ! [m]       Geoid elevation   (w.r.t. PD sea level)
+    real(dp), dimension(:  ), contiguous, pointer :: Hi                    => null()  ! [m]       Ice thickness
+    real(dp), dimension(:  ), contiguous, pointer :: Hb                    => null()  ! [m]       Bedrock elevation (w.r.t. PD sea level)
+    real(dp), dimension(:  ), contiguous, pointer :: SL                    => null()  ! [m]       Geoid elevation   (w.r.t. PD sea level)
+    type(MPI_WIN) :: wHi, wHb, wSL
 
     ! Secondary ice geometry fields
-    real(dp), dimension(:  ), allocatable :: Hs                      ! [m]       Ice surface elevation (w.r.t. PD sea level)
-    real(dp), dimension(:  ), allocatable :: Hib                     ! [m]       Ice base elevation    (w.r.t. PD sea level)
-    real(dp), dimension(:  ), allocatable :: TAF                     ! [m]       Thickness above floatation
-    real(dp), dimension(:  ), allocatable :: Hi_eff                  ! [m]       Effective ice thickness
-    real(dp), dimension(:  ), allocatable :: Hs_slope                ! [-]       Absolute surface gradient
-    real(dp), dimension(:  ), allocatable :: Ho                      ! [m]       Depth of ocean column adjacent to the ice front
+    real(dp), dimension(:  ), contiguous, pointer :: Hs                    => null()  ! [m]       Ice surface elevation (w.r.t. PD sea level)
+    real(dp), dimension(:  ), contiguous, pointer :: Hib                   => null()  ! [m]       Ice base elevation    (w.r.t. PD sea level)
+    real(dp), dimension(:  ), contiguous, pointer :: TAF                   => null()  ! [m]       Thickness above floatation
+    real(dp), dimension(:  ), contiguous, pointer :: Hi_eff                => null()  ! [m]       Effective ice thickness
+    real(dp), dimension(:  ), contiguous, pointer :: Hs_slope              => null()  ! [-]       Absolute surface gradient
+    real(dp), dimension(:  ), contiguous, pointer :: Ho                    => null()  ! [m]       Depth of ocean column adjacent to the ice front
+    type(MPI_WIN) :: wHs, wHib, wTAF, wHi_eff, wHs_slope, wHo
 
     ! Horizontal derivatives
-    real(dp), dimension(:  ), allocatable :: dHib_dx_b               ! [-]       Horizontal derivative of ice draft on b-grid
-    real(dp), dimension(:  ), allocatable :: dHib_dy_b               ! [-]       Horizontal derivative of ice draft on b-grid
+    real(dp), dimension(:  ), contiguous, pointer :: dHib_dx_b             => null()  ! [-]       Horizontal derivative of ice draft on b-grid
+    real(dp), dimension(:  ), contiguous, pointer :: dHib_dy_b             => null()  ! [-]       Horizontal derivative of ice draft on b-grid
+    type(MPI_WIN) :: wdHib_dx_b, wdHib_dy_b
 
     ! Sub-grid bedrock cumulative density functions (CDFs)
-    real(dp), dimension(:,:), allocatable :: bedrock_cdf             ! [-]       Sub-grid bedrock cumulative density functions on the a-grid (vertices)
-    real(dp), dimension(:,:), allocatable :: bedrock_cdf_b           ! [-]       Sub-grid bedrock cumulative density functions on the b-grid (triangles)
+    real(dp), dimension(:,:), contiguous, pointer :: bedrock_cdf           => null()  ! [-]       Sub-grid bedrock cumulative density functions on the a-grid (vertices)
+    real(dp), dimension(:,:), contiguous, pointer :: bedrock_cdf_b         => null()  ! [-]       Sub-grid bedrock cumulative density functions on the b-grid (triangles)
+    type(MPI_WIN) :: wbedrock_cdf, wbedrock_cdf_b
 
     ! Area fractions
-    real(dp), dimension(:  ), allocatable :: fraction_gr             ! [0-1]     Grounded area fractions of vertices
-    real(dp), dimension(:  ), allocatable :: fraction_gr_b           ! [0-1]     Grounded area fractions of triangles
-    real(dp), dimension(:  ), allocatable :: fraction_margin         ! [0-1]     Ice-covered area fractions of ice margins
+    real(dp), dimension(:  ), contiguous, pointer :: fraction_gr           => null()  ! [0-1]     Grounded area fractions of vertices
+    real(dp), dimension(:  ), contiguous, pointer :: fraction_gr_b         => null()  ! [0-1]     Grounded area fractions of triangles
+    real(dp), dimension(:  ), contiguous, pointer :: fraction_margin       => null()  ! [0-1]     Ice-covered area fractions of ice margins
+    type(MPI_WIN) :: wfraction_gr, wfraction_gr_b, wfraction_margin
 
     ! Ice masks
-    logical,  dimension(:  ), allocatable :: mask_icefree_land       ! T: ice-free land , F: otherwise
-    logical,  dimension(:  ), allocatable :: mask_icefree_ocean      ! T: ice-free ocean, F: otherwise
-    logical,  dimension(:  ), allocatable :: mask_grounded_ice       ! T: grounded ice  , F: otherwise
-    logical,  dimension(:  ), allocatable :: mask_floating_ice       ! T: floating ice  , F: otherwise
-    logical,  dimension(:  ), allocatable :: mask_margin             ! T: ice next to ice-free, F: otherwise
-    logical,  dimension(:  ), allocatable :: mask_gl_gr              ! T: grounded ice next to floating ice, F: otherwise
-    logical,  dimension(:  ), allocatable :: mask_gl_fl              ! T: floating ice next to grounded ice, F: otherwise
-    logical,  dimension(:  ), allocatable :: mask_cf_gr              ! T: grounded ice next to ice-free water (sea or lake), F: otherwise
-    logical,  dimension(:  ), allocatable :: mask_cf_fl              ! T: floating ice next to ice-free water (sea or lake), F: otherwise
-    logical,  dimension(:  ), allocatable :: mask_coastline          ! T: ice-free land next to ice-free ocean, F: otherwise
-    integer,  dimension(:  ), allocatable :: mask
+    logical,  dimension(:  ), contiguous, pointer :: mask_icefree_land     => null()  ! T: ice-free land , F: otherwise
+    logical,  dimension(:  ), contiguous, pointer :: mask_icefree_ocean    => null()  ! T: ice-free ocean, F: otherwise
+    logical,  dimension(:  ), contiguous, pointer :: mask_grounded_ice     => null()  ! T: grounded ice  , F: otherwise
+    logical,  dimension(:  ), contiguous, pointer :: mask_floating_ice     => null()  ! T: floating ice  , F: otherwise
+    logical,  dimension(:  ), contiguous, pointer :: mask_margin           => null()  ! T: ice next to ice-free, F: otherwise
+    logical,  dimension(:  ), contiguous, pointer :: mask_gl_gr            => null()  ! T: grounded ice next to floating ice, F: otherwise
+    logical,  dimension(:  ), contiguous, pointer :: mask_gl_fl            => null()  ! T: floating ice next to grounded ice, F: otherwise
+    logical,  dimension(:  ), contiguous, pointer :: mask_cf_gr            => null()  ! T: grounded ice next to ice-free water (sea or lake), F: otherwise
+    logical,  dimension(:  ), contiguous, pointer :: mask_cf_fl            => null()  ! T: floating ice next to ice-free water (sea or lake), F: otherwise
+    logical,  dimension(:  ), contiguous, pointer :: mask_coastline        => null()  ! T: ice-free land next to ice-free ocean, F: otherwise
+    integer,  dimension(:  ), contiguous, pointer :: mask                  => null()
+    type(MPI_WIN) :: wmask_icefree_land, wmask_icefree_ocean, wmask_grounded_ice, wmask_floating_ice, wmask_margin
+    type(MPI_WIN) :: wmask_gl_gr, wmask_gl_fl, wmask_cf_gr, wmask_cf_fl, wmask_coastline, wmask
 
   end type atype_ice_geometry_model_data
 

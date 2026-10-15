@@ -1,0 +1,267 @@
+module ice_model_data
+
+  ! The different data types used in the ice modules
+
+! ===== Preamble =====
+! ====================
+
+  USE precisions                                             , ONLY: dp
+  use graph_types, only: type_graph_pair
+  use mpi_f08, only: MPI_WIN
+  use basal_hydrology_model_types, only: type_basal_hydrology_model
+  use models_basic, only: atype_model
+
+  IMPLICIT NONE
+
+  private
+
+  public :: type_ice_velocity_solver_DIVA_graphs
+  public :: type_ice_pc
+  public :: atype_ice_model_data
+
+! ===== Types =====
+! =================
+
+  type type_ice_velocity_solver_DIVA_graphs
+    ! Data fields needed to solve the Depth-Integrated Viscosity Approximation
+
+    ! Graphs
+    type(type_graph_pair) :: graphs
+
+    ! Ice model forcing data
+    real(dp), dimension(:    ), pointer :: Hi_a                         => null()
+    real(dp), dimension(:    ), pointer :: Hs_a                         => null()
+    real(dp), dimension(:    ), pointer :: Ho_a                         => null()
+    real(dp), dimension(:,:  ), pointer :: A_flow_3D_a                  => null()
+    real(dp), dimension(:    ), pointer :: basal_friction_coefficient_a => null()
+    real(dp), dimension(:    ), pointer :: fraction_gr_b                => null()
+    type(MPI_WIN) :: wHi_a, wHs_a, wHo_a
+    type(MPI_WIN) :: wA_flow_3D_a, wbasal_friction_coefficient_a, wfraction_gr_b
+
+    ! Solution
+    real(dp), dimension(:    ), pointer :: u_vav_b  => null()                    ! [m yr^-1] 2-D horizontal ice velocity
+    real(dp), dimension(:    ), pointer :: v_vav_b  => null()
+    real(dp), dimension(:    ), pointer :: u_base_b => null()                    ! [m yr^-1] 2-D horizontal ice velocity at the ice base
+    real(dp), dimension(:    ), pointer :: v_base_b => null()
+    real(dp), dimension(:,:  ), pointer :: u_3D_b   => null()                    ! [m yr^-1] 3-D horizontal ice velocity
+    real(dp), dimension(:,:  ), pointer :: v_3D_b   => null()
+    type(MPI_WIN) :: wu_vav_b, wv_vav_b, wu_base_b, wv_base_b, wu_3D_b, wv_3D_b
+
+    ! Intermediate data fields
+    real(dp), dimension(:    ), pointer :: du_dx_a    => null()                     ! [yr^-1] 2-D horizontal strain rates
+    real(dp), dimension(:    ), pointer :: du_dy_a    => null()
+    real(dp), dimension(:    ), pointer :: dv_dx_a    => null()
+    real(dp), dimension(:    ), pointer :: dv_dy_a    => null()
+    real(dp), dimension(:    ), pointer :: du_dx_b    => null()                     ! [yr^-1] 2-D horizontal strain rates
+    real(dp), dimension(:    ), pointer :: du_dy_b    => null()
+    real(dp), dimension(:    ), pointer :: dv_dx_b    => null()
+    real(dp), dimension(:    ), pointer :: dv_dy_b    => null()
+    real(dp), dimension(:,:  ), pointer :: du_dz_3D_a => null()                  ! [yr^-1] 3-D vertical shear strain rates
+    real(dp), dimension(:,:  ), pointer :: dv_dz_3D_a => null()
+    real(dp), dimension(:,:  ), pointer :: du_dz_3D_b => null()                  ! [yr^-1] 3-D vertical shear strain rates
+    real(dp), dimension(:,:  ), pointer :: dv_dz_3D_b => null()
+    type(MPI_WIN) :: wdu_dx_a, wdu_dy_a, wdv_dx_a, wdv_dy_a, wdu_dz_3D_a, wdv_dz_3D_a
+    type(MPI_WIN) :: wdu_dx_b, wdu_dy_b, wdv_dx_b, wdv_dy_b, wdu_dz_3D_b, wdv_dz_3D_b
+
+    real(dp), dimension(:,:  ), pointer :: eta_3D_a  => null()                    ! Effective viscosity
+    real(dp), dimension(:,:  ), pointer :: eta_3D_b  => null()
+    real(dp), dimension(:    ), pointer :: eta_vav_a => null()
+    real(dp), dimension(:    ), pointer :: eta_vav_b => null()
+    real(dp), dimension(:    ), pointer :: N_a       => null()                   ! Product term N = eta * H
+    real(dp), dimension(:    ), pointer :: N_b       => null()
+    real(dp), dimension(:    ), pointer :: dN_dx_b   => null()                   ! Gradients of N
+    real(dp), dimension(:    ), pointer :: dN_dy_b   => null()
+    type(MPI_WIN) :: weta_3D_a, weta_3D_b, weta_vav_a, weta_vav_b, wN_a, wN_b, wdN_dx_b, wdN_dy_b
+
+    real(dp), dimension(:,:  ), pointer :: F1_3D_a => null()                     ! F-integrals
+    real(dp), dimension(:,:  ), pointer :: F2_3D_a => null()
+    real(dp), dimension(:,:  ), pointer :: F1_3D_b => null()
+    real(dp), dimension(:,:  ), pointer :: F2_3D_b => null()
+    type(MPI_WIN) :: wF1_3D_a, wF2_3D_a, wF1_3D_b, wF2_3D_b
+
+    real(dp), dimension(:    ), pointer :: basal_friction_coefficient_b => null() ! Basal friction coefficient (tau_b = u * beta_b)
+    real(dp), dimension(:    ), pointer :: beta_eff_a                   => null() ! "Effective" friction coefficient (turning the SSA into the DIVA)
+    real(dp), dimension(:    ), pointer :: beta_eff_b                   => null()
+    type(MPI_WIN) :: wbasal_friction_coefficient_b, wbeta_eff_a, wbeta_eff_b
+
+    real(dp), dimension(:    ), pointer :: tau_bx_b => null()                    ! Basal shear stress
+    real(dp), dimension(:    ), pointer :: tau_by_b => null()
+    real(dp), dimension(:    ), pointer :: tau_dx_b => null()                    ! Driving stress
+    real(dp), dimension(:    ), pointer :: tau_dy_b => null()
+    real(dp), dimension(:    ), pointer :: tau_ox_b => null()                    ! Vertically integrated ocean back pressure
+    real(dp), dimension(:    ), pointer :: tau_oy_b => null()
+    type(MPI_WIN) :: wtau_bx_b, wtau_by_b, wtau_dx_b, wtau_dy_b, wtau_ox_b, wtau_oy_b
+
+    real(dp), dimension(:    ), pointer :: u_b_prev => null()                    ! Velocity solution from previous viscosity iteration
+    real(dp), dimension(:    ), pointer :: v_b_prev => null()
+    type(MPI_WIN ) :: wu_b_prev, wv_b_prev
+
+    ! Parameters for the iterative solver used to solve the matrix equation representing the linearised SSA
+    real(dp)                                :: PETSc_rtol
+    real(dp)                                :: PETSc_abstol
+
+    ! Restart file
+    character(len=1024)                     :: restart_filename
+
+  end type type_ice_velocity_solver_DIVA_graphs
+
+  TYPE type_ice_pc
+    ! Data fields needed for the predictor/corrector time-stepping scheme
+
+    REAL(dp)                                :: dt_n                         ! [yr]   Previous time step
+    REAL(dp)                                :: dt_np1                       ! [yr]   Current  time step
+    REAL(dp)                                :: zeta_t                       ! [-]    Ratio between previous and new time step
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi_dt_Hi_nm1_u_nm1          ! [m/yr] Thinning rates from previous time step
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi_dt_Hi_n_u_n              ! [m/yr] Thinning rates for current time step with old geometry
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Hi_star_np1                  ! [m]    Predicted ice thickness
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi_dt_Hi_star_np1_u_np1     ! [m/yr] Thinning rates for predicted ice thickness and updated velocity
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Hi_np1                       ! [m]    Corrected ice thickness
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: tau_np1                      ! [m]    Truncation error
+    INTEGER,  DIMENSION(:    ), ALLOCATABLE :: tau_n_guilty                 ! [-]    Number of PC iterations where vertex had truncation errors above the tolerance
+    REAL(dp)                                :: eta_n                        ! [m]    Previous maximum truncation error
+    REAL(dp)                                :: eta_np1                      ! [m]    Current  maximum truncation error
+
+    ! Restart file
+    CHARACTER(LEN=256)                      :: restart_filename
+
+  END TYPE type_ice_pc
+
+  type, abstract, extends(atype_model) :: atype_ice_model_data
+    ! The ice dynamics model data structure.
+
+    ! Geometry changes
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi                         ! [m] Ice thickness difference (w.r.t. reference)
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHb                         ! [m] Bedrock elevation difference (w.r.t. reference)
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHs                         ! [m] Surface elevation difference (w.r.t. reference)
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHib                        ! [m] Base elevation difference (w.r.t. reference)
+
+    ! Rates of change
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi_dt                      ! [m yr^-1] Ice thickness rate of change
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHb_dt                      ! [m yr^-1] Bedrock elevation rate of change
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHs_dt                      ! [m yr^-1] Ice surface elevation rate of change
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHib_dt                     ! [m yr^-1] Ice base elevation rate of change
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi_dt_raw                  ! [m yr^-1] Ice thickness rate of change before any ice thickness modifications
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi_dt_residual             ! [m yr^-1] Residual ice thickness rate of change for inversions
+
+    ! Target quantities
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: dHi_dt_target               ! [m yr^-1] Target ice thickness rate of change for inversions
+
+    ! Masks
+    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_noice                  ! T: no ice is allowed here, F: ice is allowed here
+    LOGICAL,  DIMENSION(:    ), ALLOCATABLE :: mask_SGD                    ! T: potential subglacial discharge area, F: otherwise
+    INTEGER,  DIMENSION(:    ), ALLOCATABLE :: mask_ROI                    ! list respective ROI number, zero otherwise (all zero when no ROI is specified)
+    INTEGER,  DIMENSION(:    ), ALLOCATABLE :: basin_ID                    ! The drainage basin to which each vertex belongs
+    INTEGER                                 :: nROI                        ! Number of ROI masks in the ice model type
+
+  ! === Terrain-following coordinate zeta gradients ===
+  ! ===================================================
+
+    ! Gradients of the terrain-following (i.e. ice-geometry-dependent) vertical coordinate zeta
+
+    ! On the ak-grid (vertices, vertically regular)
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: dzeta_dt_ak
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: dzeta_dx_ak
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: dzeta_dy_ak
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: dzeta_dz_ak
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: d2zeta_dx2_ak
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: d2zeta_dxdy_ak
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: d2zeta_dy2_ak
+
+    ! On the bk-grid (triangles, vertically regular)
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: dzeta_dx_bk
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: dzeta_dy_bk
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: dzeta_dz_bk
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: d2zeta_dx2_bk
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: d2zeta_dxdy_bk
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: d2zeta_dy2_bk
+
+    ! On the bks-grid (triangles, vertically staggered)
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: dzeta_dx_bks
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: dzeta_dy_bks
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: dzeta_dz_bks
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: d2zeta_dx2_bks
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: d2zeta_dxdy_bks
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: d2zeta_dy2_bks
+
+  ! === Thermodynamics and rheology ===
+  ! ===================================
+
+    ! Ice temperatures
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: Ti                          ! [K] Englacial temperature
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: Ti_pmp                      ! [K] Pressure melting point temperature
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Ti_hom                      ! [K] Basal temperature w.r.t. pressure melting point
+
+    ! Physical quantities
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: Cpi                         ! [J kg^-1 K^-1] Specific heat capacity
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: Ki                          ! [J m^-1 K^-1 yr^-1] Thermal conductivity
+
+    ! Heating
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: internal_heating            ! [?] Internal heating
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: frictional_heating          ! [?] Frictional heating
+
+    ! Glen's flow law factor
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: A_flow                      ! [Pa^-3 y^-1] Glen's flow law factor
+
+  ! == Ice flow regime ==
+  ! =====================
+
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: divQ                        ! [m yr^-1] Horizontal ice flux divergence
+    real(dp), dimension(:    ), allocatable :: Qspill                      ! [m yr^-1] Horizontal ice flux due to spill over of filled cells
+
+  ! == Basal hydrology ==
+  ! =====================
+
+    ! Basal hydrology
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: pore_water_pressure         ! [Pa]  Basal pore water pressure
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: overburden_pressure         ! [Pa]  Basal overburden pressure
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: effective_pressure          ! [Pa]  Basal effective pressure
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: pore_water_likelihood       ! [0-1] Basal pore water likelihood
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: pore_water_fraction         ! [0-1] Fraction of overburden pressure reduced by pore water pressure
+
+    type(type_basal_hydrology_model) :: hydro_Salle2025
+
+  ! == Basal sliding ==
+  ! ===================
+
+    ! Basal friction and shear stress
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: till_yield_stress           ! [Pa]               Till yield stress (used when choice_sliding_law = "Coloumb", "Budd", or "Zoet-Iverson")
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: basal_friction_coefficient  ! [Pa yr m^-1]       Basal friction coefficient (basal_shear_stress = u_base * basal_friction_coefficient)
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: basal_shear_stress          ! [Pa]               Basal shear stress
+
+  ! == Geothermal heat ==
+  ! =====================
+
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: geothermal_heat_flux        ! [J m^-2 yr^-1] Geothermal heat flux
+
+  ! === Ice thickness time stepping ===
+  ! ===================================
+
+    ! Ice thickness time-stepping solvers
+    TYPE(type_ice_pc)                       :: pc
+
+    ! Time frames and ice thicknesses
+    REAL(dp)                                :: t_Hi_prev                   ! [yr] Time of the previous state
+    REAL(dp)                                :: t_Hi_next                   ! [yr] Time of the next state
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Hi_prev                     ! [m]  The previous state
+    REAL(dp), DIMENSION(:    ), ALLOCATABLE :: Hi_next                     ! [m]  The next state
+
+  ! === Ice temperature time stepping ===
+  ! =====================================
+
+    ! Time frames and ice temperatures
+    REAL(dp)                                :: t_Ti_prev                   ! [yr] Time of the previous state
+    REAL(dp)                                :: t_Ti_next                   ! [yr] Time of the next state
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: Ti_prev                     ! [m]  The previous state
+    REAL(dp), DIMENSION(:,:  ), ALLOCATABLE :: Ti_next                     ! [m]  The next state
+    CHARACTER(LEN=256)                      :: thermo_restart_filename     !      Filename for thermodynamics restart file
+
+  ! === Numerical stability info ===
+  ! ================================
+
+    real(dp)                                :: dt_ice                      ! [yr] Ice-dynamical time step
+    integer                                 :: n_visc_its                  !      Number of non-linear viscosity iterations
+    integer                                 :: n_Axb_its                   !      Number of iterations in iterative solver for linearised momentum balance
+
+  end type atype_ice_model_data
+
+end module ice_model_data

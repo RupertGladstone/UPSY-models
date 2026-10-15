@@ -8,14 +8,17 @@ module mesh_output_files
   use grid_basic, only: type_grid
   use region_types, only: type_model_region
   use mesh_types, only: type_mesh
-  use ice_model_types, only: type_ice_model
+  use ice_model_data, only: atype_ice_model_data
+  use ice_geometry_model_data, only: atype_ice_geometry_model_data
   use netcdf_io_main
   use netcdf_bedrock_CDF
   use netcdf, only: NF90_DOUBLE
   use mesh_contour, only: calc_mesh_contour
   use parameters, only: NaN
   use SMB_IMAU_ITM, only: type_SMB_model_IMAU_ITM
+  use SMB_ITM_v2, only: type_SMB_model_ITM_v2
   use mesh_disc_apply_operators, only: map_a_b_2D, ddx_a_a_2D, ddy_a_a_2D
+  use parallel_array_info_type, only: type_par_arr_info
 
   implicit none
 
@@ -137,6 +140,7 @@ contains
     integer, dimension(region%mesh%vi1:region%mesh%vi2) :: mask_int
     real(dp), dimension(:),   allocatable :: d_mesh_vec_partial_2D
     real(dp), dimension(:),   allocatable :: d_mesh_vec_partial_2D_b
+    integer                               :: vi
 
     ! Add routine to path
     call init_routine( routine_name)
@@ -217,15 +221,15 @@ contains
       case ('Hs_slope')
         call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'Hs_slope', region%ice%geom%Hs_slope)
       case ('grounding_line')
-        call write_grounding_line_to_file( filename, ncid, region%mesh, region%ice)
+        call write_grounding_line_to_file( filename, ncid, region%mesh, region%ice%geom)
       case ('ice_margin')
-        call write_ice_margin_to_file( filename, ncid, region%mesh, region%ice)
+        call write_ice_margin_to_file( filename, ncid, region%mesh, region%ice%geom)
       case ('calving_front')
-        call write_calving_front_to_file( filename, ncid, region%mesh, region%ice)
+        call write_calving_front_to_file( filename, ncid, region%mesh, region%ice%geom)
       case ('coastline')
-        call write_coastline_to_file( filename, ncid, region%mesh, region%ice)
+        call write_coastline_to_file( filename, ncid, region%mesh, region%ice%geom)
       case ('grounded_ice_contour')
-        call write_grounded_ice_contour_to_file( filename, ncid, region%mesh, region%ice)
+        call write_grounded_ice_contour_to_file( filename, ncid, region%mesh, region%ice%geom)
 
     ! ===== Geometry on triangles for 3D plots =====
     ! ==============================================
@@ -282,83 +286,45 @@ contains
     ! =================
 
       case ('mask_icefree_land')
-        where (region%ice%geom%mask_icefree_land)
-          mask_int = 1
-        elsewhere
-          mask_int = 0
-        end where
+        call convert_hybrid_logical_mask_to_int( region%mesh%pai_v, region%ice%geom%mask_icefree_land, mask_int)
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_icefree_land', mask_int)
       case ('mask_icefree_ocean')
-        where (region%ice%geom%mask_icefree_ocean)
-          mask_int = 1
-        elsewhere
-          mask_int = 0
-        end where
+        call convert_hybrid_logical_mask_to_int( region%mesh%pai_v, region%ice%geom%mask_icefree_ocean, mask_int)
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_icefree_ocean', mask_int)
       case ('mask_grounded_ice')
-        where (region%ice%geom%mask_grounded_ice)
-          mask_int = 1
-        elsewhere
-          mask_int = 0
-        end where
+        call convert_hybrid_logical_mask_to_int( region%mesh%pai_v, region%ice%geom%mask_grounded_ice, mask_int)
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_grounded_ice', mask_int)
       case ('mask_floating_ice')
-        where (region%ice%geom%mask_floating_ice)
-          mask_int = 1
-        elsewhere
-          mask_int = 0
-        end where
+        call convert_hybrid_logical_mask_to_int( region%mesh%pai_v, region%ice%geom%mask_floating_ice, mask_int)
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_floating_ice', mask_int)
       case ('mask_margin')
-        where (region%ice%geom%mask_margin)
-          mask_int = 1
-        elsewhere
-          mask_int = 0
-        end where
+        call convert_hybrid_logical_mask_to_int( region%mesh%pai_v, region%ice%geom%mask_margin, mask_int)
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_margin', mask_int)
       case ('mask_gl_gr')
-        where (region%ice%geom%mask_gl_gr)
-          mask_int = 1
-        elsewhere
-          mask_int = 0
-        end where
+        call convert_hybrid_logical_mask_to_int( region%mesh%pai_v, region%ice%geom%mask_gl_gr, mask_int)
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_gl_gr', mask_int)
       case ('mask_gl_fl')
-        where (region%ice%geom%mask_gl_fl)
-          mask_int = 1
-        elsewhere
-          mask_int = 0
-        end where
+        call convert_hybrid_logical_mask_to_int( region%mesh%pai_v, region%ice%geom%mask_gl_fl, mask_int)
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_gl_fl', mask_int)
       case ('mask_cf_gr')
-        where (region%ice%geom%mask_cf_gr)
-          mask_int = 1
-        elsewhere
-          mask_int = 0
-        end where
+        call convert_hybrid_logical_mask_to_int( region%mesh%pai_v, region%ice%geom%mask_cf_gr, mask_int)
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_cf_gr', mask_int)
       case ('mask_cf_fl')
-        where (region%ice%geom%mask_cf_fl)
-          mask_int = 1
-        elsewhere
-          mask_int = 0
-        end where
+        call convert_hybrid_logical_mask_to_int( region%mesh%pai_v, region%ice%geom%mask_cf_fl, mask_int)
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_cf_fl', mask_int)
       case ('mask_coastline')
-        where (region%ice%geom%mask_coastline)
-          mask_int = 1
-        elsewhere
-          mask_int = 0
-        end where
+        call convert_hybrid_logical_mask_to_int( region%mesh%pai_v, region%ice%geom%mask_coastline, mask_int)
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_coastline', mask_int)
       case ('mask_ROI')
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_ROI', region%ice%mask_ROI)
       case ('mask_SGD')
-        where (region%ice%mask_SGD)
-          mask_int = 1
-        elsewhere
-          mask_int = 0
-        end where
+        do vi = region%mesh%vi1, region%mesh%vi2
+          if (region%ice%mask_SGD( vi)) then
+            mask_int( vi) = 1
+          else
+            mask_int( vi) = 0
+          end if
+        end do
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask_SGD', mask_int)
       case ('mask')
         call write_to_field_multopt_mesh_int_2D( region%mesh, filename, ncid, 'mask', region%ice%geom%mask)
@@ -400,83 +366,204 @@ contains
 
       ! 3-D
       case ('u_3D')
-        call write_to_field_multopt_mesh_dp_3D_b( region%mesh, filename, ncid, 'u_3D', region%ice%u_3D_b)
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call write_to_field_multopt_mesh_dp_3D_b( region%mesh, filename, ncid, 'u_3D', region%ice%vel%u_3D_b)
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'u_3D', region%ice%vel%u_3D)
+        end select
       case ('v_3D')
-        call write_to_field_multopt_mesh_dp_3D_b( region%mesh, filename, ncid, 'v_3D', region%ice%v_3D_b)
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call write_to_field_multopt_mesh_dp_3D_b( region%mesh, filename, ncid, 'v_3D', region%ice%vel%v_3D_b)
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'v_3D', region%ice%vel%v_3D)
+        end select
+      case ('u_3D_a')
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'u_3D_a', region%ice%vel%u_3D)
+      case ('v_3D_a')
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'v_3D_a', region%ice%vel%v_3D)
       case ('u_3D_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call write_to_field_multopt_mesh_dp_3D_b( region%mesh, filename, ncid, 'u_3D_b', region%ice%vel%u_3D_b)
       case ('v_3D_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call write_to_field_multopt_mesh_dp_3D_b( region%mesh, filename, ncid, 'v_3D_b', region%ice%vel%v_3D_b)
       case ('w_3D')
-        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'w_3D', region%ice%w_3D)
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'w_3D', region%ice%vel%w_3D)
 
-      ! Vertically integrated
+      ! Vertically averaged
       case ('u_vav')
-        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'u_vav', region%ice%u_vav_b)
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'u_vav', region%ice%vel%u_vav_b)
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'u_vav', region%ice%vel%u_vav)
+        end select
       case ('v_vav')
-        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'v_vav', region%ice%v_vav_b)
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'v_vav', region%ice%vel%v_vav_b)
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'v_vav', region%ice%vel%v_vav)
+        end select
+      case ('u_vav_a')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'u_vav_a', region%ice%vel%u_vav)
+      case ('v_vav_a')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'v_vav_a', region%ice%vel%v_vav)
       case ('u_vav_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'u_vav_b', region%ice%vel%u_vav_b)
       case ('v_vav_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'v_vav_b', region%ice%vel%v_vav_b)
       case ('uabs_vav')
-        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'uabs_vav', region%ice%uabs_vav_b)
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'uabs_vav', region%ice%vel%uabs_vav_b)
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'uabs_vav', region%ice%vel%uabs_vav)
+        end select
+      case ('uabs_vav_a')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'uabs_vav_a', region%ice%vel%uabs_vav)
       case ('uabs_vav_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'uabs_vav_b', region%ice%vel%uabs_vav_b)
 
       ! Surface
       case ('u_surf')
-        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'u_surf', region%ice%u_surf_b)
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'u_surf', region%ice%vel%u_surf_b)
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'u_surf', region%ice%vel%u_surf)
+        end select
       case ('v_surf')
-        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'v_surf', region%ice%v_surf_b)
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'v_surf', region%ice%vel%v_surf_b)
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'v_surf', region%ice%vel%v_surf)
+        end select
+      case ('u_surf_a')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'u_surf_a', region%ice%vel%u_surf)
+      case ('v_surf_a')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'v_surf_a', region%ice%vel%v_surf)
       case ('u_surf_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'u_surf_b', region%ice%vel%u_surf_b)
       case ('v_surf_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
-      case ('w_surf')
-        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'w_surf', region%ice%w_surf)
+        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'v_surf_b', region%ice%vel%v_surf_b)
       case ('uabs_surf')
-        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'uabs_surf', region%ice%uabs_surf_b)
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'uabs_surf', region%ice%vel%uabs_surf_b)
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'uabs_surf', region%ice%vel%uabs_surf)
+        end select
+      case ('uabs_surf_a')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'uabs_surf_a', region%ice%vel%uabs_surf)
       case ('uabs_surf_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'uabs_surf_b', region%ice%vel%uabs_surf_b)
+      case ('w_surf')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'w_surf', region%ice%vel%w_surf)
 
       ! Base
       case ('u_base')
-        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'u_base', region%ice%u_base_b)
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'u_base', region%ice%vel%u_base_b)
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'u_base', region%ice%vel%u_base)
+        end select
       case ('v_base')
-        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'v_base', region%ice%v_base_b)
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'v_base', region%ice%vel%v_base_b)
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'v_base', region%ice%vel%v_base)
+        end select
+      case ('u_base_a')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'u_base_a', region%ice%vel%u_base)
+      case ('v_base_a')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'v_base_a', region%ice%vel%v_base)
       case ('u_base_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'u_base_b', region%ice%vel%u_base_b)
       case ('v_base_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
-      case ('w_base')
-        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'w_base', region%ice%w_base)
+        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'v_base_b', region%ice%vel%v_base_b)
       case ('uabs_base')
-        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'uabs_base', region%ice%uabs_base_b)
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'uabs_base', region%ice%vel%uabs_base_b)
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'uabs_base', region%ice%vel%uabs_base)
+        end select
+      case ('uabs_base_a')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'uabs_base_a', region%ice%vel%uabs_base)
       case ('uabs_base_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'uabs_base_b', region%ice%vel%uabs_base_b)
+      case ('w_base')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'w_base', region%ice%vel%w_base)
 
     ! === Strain rates ===
     ! ====================
 
       case ('du_dx_3D')
-        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'du_dx_3D', region%ice%du_dx_3D)
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'du_dx_3D', region%ice%vel%du_dx_3D)
       case ('du_dy_3D')
-        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'du_dy_3D', region%ice%du_dy_3D)
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'du_dy_3D', region%ice%vel%du_dy_3D)
       case ('du_dz_3D')
-        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'du_dz_3D', region%ice%du_dz_3D)
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'du_dz_3D', region%ice%vel%du_dz_3D)
       case ('dv_dx_3D')
-        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dv_dx_3D', region%ice%dv_dx_3D)
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dv_dx_3D', region%ice%vel%dv_dx_3D)
       case ('dv_dy_3D')
-        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dv_dy_3D', region%ice%dv_dy_3D)
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dv_dy_3D', region%ice%vel%dv_dy_3D)
       case ('dv_dz_3D')
-        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dv_dz_3D', region%ice%dv_dz_3D)
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dv_dz_3D', region%ice%vel%dv_dz_3D)
       case ('dw_dx_3D')
-        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dw_dx_3D', region%ice%dw_dx_3D)
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dw_dx_3D', region%ice%vel%dw_dx_3D)
       case ('dw_dy_3D')
-        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dw_dy_3D', region%ice%dw_dy_3D)
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dw_dy_3D', region%ice%vel%dw_dy_3D)
       case ('dw_dz_3D')
-        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dw_dz_3D', region%ice%dw_dz_3D)
+        call write_to_field_multopt_mesh_dp_3D( region%mesh, filename, ncid, 'dw_dz_3D', region%ice%vel%dw_dz_3D)
 
     ! == Ice flow regime ==
     ! =====================
@@ -484,7 +571,7 @@ contains
       case ('divQ')
         call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'divQ', region%ice%divQ)
       case ('R_shear')
-        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'R_shear', region%ice%R_shear)
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'R_shear', region%ice%vel%R_shear)
       case ('Qspill')
         call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'Qspill', region%ice%Qspill)
 
@@ -664,25 +751,77 @@ contains
       case ('SMB')
         call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'SMB', region%SMB%SMB)
       case ('Albedo')
-        select type (IMAU_ITM => region%SMB)
+        select type (SMB_model => region%SMB)
         class default
-          call crash('Albedo only defined for SMB model IMAU-ITM')
+          call crash('Albedo only defined for SMB model IMAU-ITM or ITM_v2')
         class is (type_SMB_model_IMAU_ITM)
-          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'Albedo', IMAU_ITM%Albedo)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'Albedo', SMB_model%Albedo)
+        class is (type_SMB_model_ITM_v2)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'Albedo', SMB_model%Albedo)
         end select
-      CASE ('FirnDepth')
-        select type (IMAU_ITM => region%SMB)
+      case ('FirnDepth')
+        select type (SMB_model => region%SMB)
         class default
           call crash('FirnDepth only defined for SMB model IMAU-ITM')
         class is (type_SMB_model_IMAU_ITM)
-          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'FirnDepth', IMAU_ITM%FirnDepth)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'FirnDepth', SMB_model%FirnDepth)
         end select
-      CASE ('MeltPreviousYear')
-        select type (IMAU_ITM => region%SMB)
+      case ('FirnAirContent')
+        select type (SMB_model => region%SMB)
+        class default
+          call crash('FirnAirContent only defined for SMB model ITM_v2')
+        class is (type_SMB_model_ITM_v2)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'FirnAirContent', SMB_model%FirnAirContent)
+        end select
+      case ('MeltPreviousYear')
+        select type (SMB_model => region%SMB)
         class default
           call crash('MeltPreviousYear only defined for SMB model IMAU-ITM')
         class is (type_SMB_model_IMAU_ITM)
-          call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'MeltPreviousYear', IMAU_ITM%MeltPreviousYear)
+          call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'MeltPreviousYear', SMB_model%MeltPreviousYear)
+        end select
+      case ('SurfaceMelt')
+        select type (SMB_model => region%SMB)
+        class default
+          call crash('SurfaceMelt only defined for SMB model IMAU-ITM or ITM_v2')
+        class is (type_SMB_model_IMAU_ITM)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'SurfaceMelt', SMB_model%Melt)
+        class is (type_SMB_model_ITM_v2)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'SurfaceMelt', SMB_model%SurfaceMelt)
+        end select
+      case ('Refreezing')
+        select type (SMB_model => region%SMB)
+        class default
+          call crash('Refreezing only defined for SMB model IMAU-ITM or ITM_v2')
+        class is (type_SMB_model_IMAU_ITM)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'Refreezing', SMB_model%Refreezing)
+        class is (type_SMB_model_ITM_v2)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'Refreezing', SMB_model%Refreezing)
+        end select
+      case ('Runoff')
+        select type (SMB_model => region%SMB)
+        class default
+          call crash('Runoff only defined for SMB model IMAU-ITM or ITM_v2')
+        class is (type_SMB_model_IMAU_ITM)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'Runoff', SMB_model%Runoff)
+        class is (type_SMB_model_ITM_v2)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'Runoff', SMB_model%Runoff)
+        end select
+      case ('Rainfall')
+        select type (SMB_model => region%SMB)
+        class default
+          call crash('Rainfall only defined for SMB model IMAU-ITM or ITM_v2')
+        class is (type_SMB_model_IMAU_ITM)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'Rainfall', SMB_model%Rainfall)
+        class is (type_SMB_model_ITM_v2)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'Rainfall', SMB_model%Rainfall)
+        end select
+      case ('Sublimation')
+        select type (SMB_model => region%SMB)
+        class default
+          call crash('Sublimation only defined for SMB model ITM_v2')
+        class is (type_SMB_model_ITM_v2)
+          call write_to_field_multopt_mesh_dp_2D_monthly( region%mesh, filename, ncid, 'Sublimation', SMB_model%Sublimation)
         end select
 
     ! == Basal mass balance ==
@@ -762,6 +901,10 @@ contains
         call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'HV_lad', region%BMB%laddie%now%H_b*region%BMB%laddie%now%V)
       case ('S_base')
         call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'S_base', region%BMB%laddie%S_base)
+      case ('domain_a')
+        call write_to_field_multopt_mesh_dp_2D( region%mesh, filename, ncid, 'domain_a', region%BMB%laddie%domain_a)
+      case ('domain_b')
+        call write_to_field_multopt_mesh_dp_2D_b( region%mesh, filename, ncid, 'domain_b', region%BMB%laddie%domain_b)
 
     ! == Lateral mass balance ==
     ! ==========================
@@ -836,7 +979,7 @@ contains
 
     if (C%choice_subgrid_grounded_fraction == 'bedrock_CDF' .or. C%choice_subgrid_grounded_fraction == 'bilin_interp_TAF+bedrock_CDF') then
       ! Set up bedrock CDF in the file
-      call setup_bedrock_CDF_in_netcdf_file( region%mesh, region%output_filename_mesh, ncid, region%ice)
+      call setup_bedrock_CDF_in_netcdf_file( region%mesh, region%output_filename_mesh, ncid, region%ice%geom)
     end if
 
     ! Add time, zeta, and month dimensions+variables to the file
@@ -1173,61 +1316,182 @@ contains
 
       ! 3-D
       case ('u_3D')
-        call add_field_mesh_dp_3D_b( filename, ncid, 'u_3D', precision = C%output_precision, do_compress = C%do_compress_output, long_name = '3-D ice velocity in the x-direction', units = 'm yr^-1')
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call add_field_mesh_dp_3D_b( filename, ncid, 'u_3D', precision = C%output_precision, do_compress = C%do_compress_output, long_name = '3-D ice velocity in the x-direction on the mesh triangles', units = 'm yr^-1')
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call add_field_mesh_dp_3D( filename, ncid, 'u_3D', precision = C%output_precision, do_compress = C%do_compress_output, long_name = '3-D ice velocity in the x-direction on the mesh vertices', units = 'm yr^-1')
+        end select
       case ('v_3D')
-        call add_field_mesh_dp_3D_b( filename, ncid, 'v_3D', precision = C%output_precision, do_compress = C%do_compress_output, long_name = '3-D ice velocity in the y-direction', units = 'm yr^-1')
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call add_field_mesh_dp_3D_b( filename, ncid, 'v_3D', precision = C%output_precision, do_compress = C%do_compress_output, long_name = '3-D ice velocity in the y-direction on the mesh triangles', units = 'm yr^-1')
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call add_field_mesh_dp_3D( filename, ncid, 'v_3D', precision = C%output_precision, do_compress = C%do_compress_output, long_name = '3-D ice velocity in the y-direction on the mesh vertices', units = 'm yr^-1')
+        end select
+      case ('u_3D_a')
+        call add_field_mesh_dp_3D( filename, ncid, 'u_3D_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = '3-D ice velocity in the x-direction on the mesh vertices', units = 'm yr^-1')
+      case ('v_3D_a')
+        call add_field_mesh_dp_3D( filename, ncid, 'v_3D_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = '3-D ice velocity in the y-direction on the mesh vertices', units = 'm yr^-1')
       case ('u_3D_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call add_field_mesh_dp_3D_b( filename, ncid, 'u_3D_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = '3-D ice velocity in the x-direction on the mesh triangles', units = 'm yr^-1')
       case ('v_3D_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call add_field_mesh_dp_3D_b( filename, ncid, 'v_3D_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = '3-D ice velocity in the y-direction on the mesh triangles', units = 'm yr^-1')
       case ('w_3D')
         call add_field_mesh_dp_3D( filename, ncid, 'w_3D', precision = C%output_precision, do_compress = C%do_compress_output, long_name = '3-D ice velocity in the z-direction', units = 'm yr^-1')
 
-      ! Vertically integrated
+      ! Vertically averaged
       case ('u_vav')
-        call add_field_mesh_dp_2D_b( filename, ncid, 'u_vav', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice velocity in the x-direction', units = 'm yr^-1')
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call add_field_mesh_dp_2D_b( filename, ncid, 'u_vav', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice velocity in the x-direction on the mesh triangles', units = 'm yr^-1')
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call add_field_mesh_dp_2D( filename, ncid, 'u_vav', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice velocity in the x-direction on the mesh vertices', units = 'm yr^-1')
+        end select
       case ('v_vav')
-        call add_field_mesh_dp_2D_b( filename, ncid, 'v_vav', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice velocity in the y-direction', units = 'm yr^-1')
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call add_field_mesh_dp_2D_b( filename, ncid, 'v_vav', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice velocity in the y-direction on the mesh triangles', units = 'm yr^-1')
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call add_field_mesh_dp_2D( filename, ncid, 'v_vav', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice velocity in the y-direction on the mesh vertices', units = 'm yr^-1')
+        end select
+      case ('u_vav_a')
+        call add_field_mesh_dp_2D( filename, ncid, 'u_vav_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice velocity in the x-direction on the mesh vertices', units = 'm yr^-1')
+      case ('v_vav_a')
+        call add_field_mesh_dp_2D( filename, ncid, 'v_vav_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice velocity in the y-direction on the mesh vertices', units = 'm yr^-1')
       case ('u_vav_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call add_field_mesh_dp_2D_b( filename, ncid, 'u_vav_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice velocity in the x-direction on the mesh triangles', units = 'm yr^-1')
       case ('v_vav_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call add_field_mesh_dp_2D_b( filename, ncid, 'v_vav_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice velocity in the y-direction on the mesh triangles', units = 'm yr^-1')
       case ('uabs_vav')
-        call add_field_mesh_dp_2D_b( filename, ncid, 'uabs_vav', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged absolute ice velocity', units = 'm yr^-1')
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call add_field_mesh_dp_2D_b( filename, ncid, 'uabs_vav', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice speed on the mesh triangles', units = 'm yr^-1')
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call add_field_mesh_dp_2D( filename, ncid, 'uabs_vav', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice speed on the mesh vertices', units = 'm yr^-1')
+        end select
+      case ('uabs_vav_a')
+        call add_field_mesh_dp_2D( filename, ncid, 'uabs_vav_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice speed on the mesh vertices', units = 'm yr^-1')
       case ('uabs_vav_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call add_field_mesh_dp_2D_b( filename, ncid, 'uabs_vav_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Vertically averaged ice speed on the mesh triangles', units = 'm yr^-1')
 
       ! Surface
       case ('u_surf')
-        call add_field_mesh_dp_2D_b( filename, ncid, 'u_surf', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice velocity in the x-direction', units = 'm yr^-1')
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call add_field_mesh_dp_2D_b( filename, ncid, 'u_surf', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice velocity in the x-direction on the mesh triangles', units = 'm yr^-1')
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call add_field_mesh_dp_2D( filename, ncid, 'u_surf', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice velocity in the x-direction on the mesh vertices', units = 'm yr^-1')
+        end select
       case ('v_surf')
-        call add_field_mesh_dp_2D_b( filename, ncid, 'v_surf', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice velocity in the y-direction', units = 'm yr^-1')
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call add_field_mesh_dp_2D_b( filename, ncid, 'v_surf', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice velocity in the y-direction on the mesh triangles', units = 'm yr^-1')
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call add_field_mesh_dp_2D( filename, ncid, 'v_surf', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice velocity in the y-direction on the mesh vertices', units = 'm yr^-1')
+        end select
+      case ('u_surf_a')
+        call add_field_mesh_dp_2D( filename, ncid, 'u_surf_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice velocity in the x-direction on the mesh vertices', units = 'm yr^-1')
+      case ('v_surf_a')
+        call add_field_mesh_dp_2D( filename, ncid, 'v_surf_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice velocity in the y-direction on the mesh vertices', units = 'm yr^-1')
       case ('u_surf_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call add_field_mesh_dp_2D_b( filename, ncid, 'u_surf_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice velocity in the x-direction on the mesh triangles', units = 'm yr^-1')
       case ('v_surf_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call add_field_mesh_dp_2D_b( filename, ncid, 'v_surf_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice velocity in the y-direction on the mesh triangles', units = 'm yr^-1')
+      case ('uabs_surf')
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call add_field_mesh_dp_2D_b( filename, ncid, 'uabs_surf', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice speed on the mesh triangles', units = 'm yr^-1')
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call add_field_mesh_dp_2D( filename, ncid, 'uabs_surf', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice speed on the mesh vertices', units = 'm yr^-1')
+        end select
+      case ('uabs_surf_a')
+        call add_field_mesh_dp_2D( filename, ncid, 'uabs_surf_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice speed on the mesh vertices', units = 'm yr^-1')
+      case ('uabs_surf_b')
+        call add_field_mesh_dp_2D_b( filename, ncid, 'uabs_surf_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice speed on the mesh triangles', units = 'm yr^-1')
       case ('w_surf')
         call add_field_mesh_dp_2D( filename, ncid, 'w_surf', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface ice velocity in the z-direction', units = 'm yr^-1')
-      case ('uabs_surf')
-        call add_field_mesh_dp_2D_b( filename, ncid, 'uabs_surf', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Absolute surface ice velocity', units = 'm yr^-1')
-      case ('uabs_surf_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
 
       ! Base
       case ('u_base')
-        call add_field_mesh_dp_2D_b( filename, ncid, 'u_base', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice velocity in the x-direction', units = 'm yr^-1')
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call add_field_mesh_dp_2D_b( filename, ncid, 'u_base', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice velocity in the x-direction on the mesh triangles', units = 'm yr^-1')
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call add_field_mesh_dp_2D( filename, ncid, 'u_base', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice velocity in the x-direction on the mesh vertices', units = 'm yr^-1')
+        end select
       case ('v_base')
-        call add_field_mesh_dp_2D_b( filename, ncid, 'v_base', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice velocity in the y-direction', units = 'm yr^-1')
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call add_field_mesh_dp_2D_b( filename, ncid, 'v_base', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice velocity in the y-direction on the mesh triangles', units = 'm yr^-1')
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call add_field_mesh_dp_2D( filename, ncid, 'v_base', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice velocity in the y-direction on the mesh vertices', units = 'm yr^-1')
+        end select
+      case ('u_base_a')
+        call add_field_mesh_dp_2D( filename, ncid, 'u_base_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice velocity in the x-direction on the mesh vertices', units = 'm yr^-1')
+      case ('v_base_a')
+        call add_field_mesh_dp_2D( filename, ncid, 'v_base_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice velocity in the y-direction on the mesh vertices', units = 'm yr^-1')
       case ('u_base_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call add_field_mesh_dp_2D_b( filename, ncid, 'u_base_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice velocity in the x-direction on the mesh triangles', units = 'm yr^-1')
       case ('v_base_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
+        call add_field_mesh_dp_2D_b( filename, ncid, 'v_base_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice velocity in the y-direction on the mesh triangles', units = 'm yr^-1')
+      case ('uabs_base')
+        select case (C%choice_stress_balance_approximation)
+        case default
+          call crash('invalid choice_stress_balance_approximation ' // trim( C%choice_stress_balance_approximation))
+        case ('none','SIA','SSA','SSA_FD_SNES','SIA/SSA','DIVA','BPA','hybrid DIVA/BPA')
+          ! These solvers define velocities on the b-grid (triangles)
+          call add_field_mesh_dp_2D_b( filename, ncid, 'uabs_base', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice speed on the mesh triangles', units = 'm yr^-1')
+        case ('SSA_FEM_PETSc')
+          ! These solvers define velocities on the a-grid (vertices)
+          call add_field_mesh_dp_2D( filename, ncid, 'uabs_base', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice speed on the mesh vertices', units = 'm yr^-1')
+        end select
+      case ('uabs_base_a')
+        call add_field_mesh_dp_2D( filename, ncid, 'uabs_base_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice speed on the mesh vertices', units = 'm yr^-1')
+      case ('uabs_base_b')
+        call add_field_mesh_dp_2D_b( filename, ncid, 'uabs_base_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice speed on the mesh triangles', units = 'm yr^-1')
       case ('w_base')
         call add_field_mesh_dp_2D( filename, ncid, 'w_base', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Basal ice velocity in the z-direction', units = 'm yr^-1')
-      case ('uabs_base')
-        call add_field_mesh_dp_2D_b( filename, ncid, 'uabs_base', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Absolute basal ice velocity', units = 'm yr^-1')
-      case ('uabs_base_b')
-        call crash( trim(choice_output_field)//' no longer an option; horizontal velocities are always returned on the b-grid')
 
     ! === Strain rates ===
     ! ====================
@@ -1436,12 +1700,24 @@ contains
       ! Main SMB variables
       case ('SMB')
         call add_field_mesh_dp_2D( filename, ncid, 'SMB', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface mass balance', units = 'm yr^-1')
-      CASE ('Albedo')
-        CALL add_field_mesh_dp_2D_monthly( filename, ncid, 'Albedo', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface albedo', units = '0-1')
-      CASE ('FirnDepth')
-        CALL add_field_mesh_dp_2D_monthly( filename, ncid, 'FirnDepth', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Monthly firn layer depth', units = 'm')
-      CASE ('MeltPreviousYear')
-        CALL add_field_mesh_dp_2D( filename, ncid, 'MeltPreviousYear', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Total ice melt from previous year', units = 'm')
+      case ('Albedo')
+        call add_field_mesh_dp_2D_monthly( filename, ncid, 'Albedo', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Surface albedo', units = '0-1')
+      case ('FirnDepth')
+        call add_field_mesh_dp_2D_monthly( filename, ncid, 'FirnDepth', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Monthly firn layer depth', units = 'm')
+      case ('FirnAirContent')
+        call add_field_mesh_dp_2D_monthly( filename, ncid, 'FirnAirContent', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Monthly firn air content', units = 'm')
+      case ('MeltPreviousYear')
+        call add_field_mesh_dp_2D( filename, ncid, 'MeltPreviousYear', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Total ice melt from previous year', units = 'm')
+      case ('SurfaceMelt')
+        call add_field_mesh_dp_2D_monthly( filename, ncid, 'SurfaceMelt', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Monthly surface melt', units = 'm')
+      case ('Refreezing')
+        call add_field_mesh_dp_2D_monthly( filename, ncid, 'Refreezing', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Monthly refreezing', units = 'm')
+      case ('Runoff')
+        call add_field_mesh_dp_2D_monthly( filename, ncid, 'Runoff', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Monthly runoff', units = 'm')
+      case ('Rainfall')
+        call add_field_mesh_dp_2D_monthly( filename, ncid, 'Rainfall', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Monthly rainfall', units = 'm')
+      case ('Sublimation')
+        call add_field_mesh_dp_2D_monthly( filename, ncid, 'Sublimation', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Monthly sublimation', units = 'm.w.e.')
 
     ! == Basal mass balance ==
     ! ========================
@@ -1520,6 +1796,10 @@ contains
         call add_field_mesh_dp_2D_b( filename, ncid, 'HV_lad', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Laddie HV ', units = 'm^2 s^-1')
       case ('S_base')
         call add_field_mesh_dp_2D( filename, ncid, 'S_base', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Salinity at ice shelf base', units = 'PSU')
+      case ('domain_a')
+        call add_field_mesh_dp_2D( filename, ncid, 'domain_a', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Domain of a-grid', units = '0-1')
+      case ('domain_b')
+        call add_field_mesh_dp_2D_b( filename, ncid, 'domain_b', precision = C%output_precision, do_compress = C%do_compress_output, long_name = 'Domain of b-grid', units = '0-1')
 
     ! == Lateral mass balance ==
     ! ==========================
@@ -1555,13 +1835,13 @@ contains
 
   end subroutine create_main_regional_output_file_mesh_field
 
-  subroutine write_grounding_line_to_file( filename, ncid, mesh, ice)
+  subroutine write_grounding_line_to_file( filename, ncid, mesh, geom)
 
     ! In/output variables:
-    character(len=*),     intent(in   ) :: filename
-    integer,              intent(in   ) :: ncid
-    type(type_mesh),      intent(in   ) :: mesh
-    type(type_ice_model), intent(in   ) :: ice
+    character(len=*),                     intent(in   ) :: filename
+    integer,                              intent(in   ) :: ncid
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
 
     ! Local variables:
     character(len=1024), parameter          :: routine_name = 'write_grounding_line_to_file'
@@ -1574,8 +1854,8 @@ contains
 
     ! Replace thickness above floatation with NaN in ice-free vertices so GL wont be found there
     do vi = mesh%vi1, mesh%vi2
-      if (ice%geom%Hi( vi) > 0.1_dp) then
-        TAF_for_GL( vi) = ice%geom%TAF( vi)
+      if (geom%Hi( vi) > 0.1_dp) then
+        TAF_for_GL( vi) = geom%TAF( vi)
       else
         TAF_for_GL( vi) = NaN
       end if
@@ -1593,13 +1873,13 @@ contains
 
   end subroutine write_grounding_line_to_file
 
-  subroutine write_calving_front_to_file( filename, ncid, mesh, ice)
+  subroutine write_calving_front_to_file( filename, ncid, mesh, geom)
 
     ! In/output variables:
-    character(len=*),     intent(in   ) :: filename
-    integer,              intent(in   ) :: ncid
-    type(type_mesh),      intent(in   ) :: mesh
-    type(type_ice_model), intent(in   ) :: ice
+    character(len=*),                     intent(in   ) :: filename
+    integer,                              intent(in   ) :: ncid
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
 
     ! Local variables:
     character(len=1024), parameter          :: routine_name = 'write_calving_front_to_file'
@@ -1612,8 +1892,8 @@ contains
 
     ! Replace ice thickness with NaN in grounded vertices so CF wont be found there
     do vi = mesh%vi1, mesh%vi2
-      if (ice%geom%TAF( vi) < 0._dp) then
-        Hi_for_GL( vi) = ice%geom%Hi( vi)
+      if (geom%TAF( vi) < 0._dp) then
+        Hi_for_GL( vi) = geom%Hi( vi)
       else
         Hi_for_GL( vi) = NaN
       end if
@@ -1631,24 +1911,26 @@ contains
 
   end subroutine write_calving_front_to_file
 
-  subroutine write_ice_margin_to_file( filename, ncid, mesh, ice)
+  subroutine write_ice_margin_to_file( filename, ncid, mesh, geom)
 
     ! In/output variables:
-    character(len=*),     intent(in   ) :: filename
-    integer,              intent(in   ) :: ncid
-    type(type_mesh),      intent(in   ) :: mesh
-    type(type_ice_model), intent(in   ) :: ice
+    character(len=*),                     intent(in   ) :: filename
+    integer,                              intent(in   ) :: ncid
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
 
     ! Local variables:
     character(len=1024), parameter          :: routine_name = 'write_ice_margin_to_file'
     real(dp), dimension(:,:  ), allocatable :: CC
+    real(dp), dimension(:), pointer         :: Hi_loc
 
     ! Add routine to path
     call init_routine( routine_name)
 
     ! Calculate ice margin contour
     if (par%primary) allocate( CC( mesh%nE,2))
-    call calc_mesh_contour( mesh, ice%geom%Hi, 0.05_dp, CC)
+    Hi_loc => geom%Hi( mesh%vi1:mesh%vi2)
+    call calc_mesh_contour( mesh, Hi_loc, 0.05_dp, CC)
 
     ! Write to NetCDF
     call write_contour_to_file( filename, ncid, mesh, CC, 'ice_margin')
@@ -1658,17 +1940,16 @@ contains
 
   end subroutine write_ice_margin_to_file
 
-  subroutine write_coastline_to_file( filename, ncid, mesh, ice)
+  subroutine write_coastline_to_file( filename, ncid, mesh, geom)
 
     ! In/output variables:
-    character(len=*),     intent(in   ) :: filename
-    integer,              intent(in   ) :: ncid
-    type(type_mesh),      intent(in   ) :: mesh
-    type(type_ice_model), intent(in   ) :: ice
+    character(len=*),                     intent(in   ) :: filename
+    integer,                              intent(in   ) :: ncid
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
 
     ! Local variables:
     character(len=1024), parameter          :: routine_name = 'write_coastline_to_file'
-    real(dp)                                :: NaN
     real(dp), dimension(mesh%vi1:mesh%vi2)  :: water_depth_for_coastline
     integer                                 :: vi
     real(dp), dimension(:,:  ), allocatable :: CC
@@ -1678,10 +1959,10 @@ contains
 
     ! Replace water depth with NaN in ice-covered vertices so coastline wont be found there
     do vi = mesh%vi1, mesh%vi2
-      if (ice%geom%Hi( vi) > 0.05_dp) then
+      if (geom%Hi( vi) > 0.05_dp) then
         water_depth_for_coastline( vi) = NaN
       else
-        water_depth_for_coastline( vi) = ice%geom%SL( vi) - ice%geom%Hb( vi)
+        water_depth_for_coastline( vi) = geom%SL( vi) - geom%Hb( vi)
       end if
     end do
 
@@ -1697,13 +1978,13 @@ contains
 
   end subroutine write_coastline_to_file
 
-  subroutine write_grounded_ice_contour_to_file( filename, ncid, mesh, ice)
+  subroutine write_grounded_ice_contour_to_file( filename, ncid, mesh, geom)
 
     ! In/output variables:
-    character(len=*),     intent(in   ) :: filename
-    integer,              intent(in   ) :: ncid
-    type(type_mesh),      intent(in   ) :: mesh
-    type(type_ice_model), intent(in   ) :: ice
+    character(len=*),                     intent(in   ) :: filename
+    integer,                              intent(in   ) :: ncid
+    type(type_mesh),                      intent(in   ) :: mesh
+    class(atype_ice_geometry_model_data), intent(in   ) :: geom
 
     ! Local variables:
     character(len=1024), parameter          :: routine_name = 'write_grounded_ice_contour_to_file'
@@ -1716,8 +1997,8 @@ contains
 
     ! Remove floating ice
     do vi = mesh%vi1, mesh%vi2
-      if (ice%geom%mask_grounded_ice( vi)) then
-        Hi_grounded_only( vi) = ice%geom%Hi( vi)
+      if (geom%mask_grounded_ice( vi)) then
+        Hi_grounded_only( vi) = geom%Hi( vi)
       else
         Hi_grounded_only( vi) = 0._dp
       end if
@@ -1770,5 +2051,32 @@ contains
     call finalise_routine( routine_name)
 
   end subroutine write_contour_to_file
+
+  subroutine convert_hybrid_logical_mask_to_int( pai, mask_logical, mask_int)
+
+    ! In/output variables:
+    type(type_par_arr_info),                   intent(in   ) :: pai
+    logical, dimension(pai%i1_nih:pai%i2_nih), intent(in   ) :: mask_logical
+    integer, dimension(pai%i1    :pai%i2    ), intent(  out) :: mask_int
+
+    ! Local variables:
+    character(len=*), parameter :: routine_name = 'convert_hybrid_logical_mask_to_int'
+    integer                     :: vi
+
+    ! Add routine to path
+    call init_routine( routine_name)
+
+    do vi = pai%i1, pai%i2
+      if (mask_logical( vi)) then
+        mask_int( vi) = 1
+      else
+        mask_int( vi) = 0
+      end if
+    end do
+
+    ! Finalise routine path
+    call finalise_routine( routine_name)
+
+  end subroutine convert_hybrid_logical_mask_to_int
 
 end module mesh_output_files

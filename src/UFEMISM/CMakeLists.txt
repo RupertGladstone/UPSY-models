@@ -8,21 +8,26 @@ file( GLOB UFEMISM_program_sources "${CMAKE_CURRENT_SOURCE_DIR}/main/*_program.f
 foreach(program_source IN LISTS UFEMISM_program_sources)
 	list(REMOVE_ITEM UFEMISM_sources_raw "${program_source}")
 endforeach()
+sanitize_fortran_sources(shared_ufemism_laddie_sources_sanitized shared_ufemism_laddie ${LADDIE_sources_raw} ${UFEMISM_sources_raw})
+sanitize_fortran_sources(UFEMISM_program_sources_sanitized UFEMISM_programs ${UFEMISM_program_sources})
 
 # Create static library for UFEMISM/LADDIE sources
-add_library( UFEMISM_static_library STATIC ${LADDIE_sources_raw} ${UFEMISM_sources_raw})
+add_library( UFEMISM_static_library STATIC ${shared_ufemism_laddie_sources_sanitized})
 target_link_libraries( UFEMISM_static_library PUBLIC UPSY_static_library)
 link_to_dependencies( UFEMISM_static_library)
 add_compiler_flags( UFEMISM_static_library)
 
-target_include_directories( UFEMISM_static_library PUBLIC ${PROJECT_SOURCE_DIR}/include ${CMAKE_CURRENT_BINARY_DIR}/mod_files/UFEMISM_static_library)
+if(EXISTS ${PROJECT_SOURCE_DIR}/include)
+	target_include_directories( UFEMISM_static_library PUBLIC ${PROJECT_SOURCE_DIR}/include)
+endif()
+target_include_directories( UFEMISM_static_library PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/mod_files/UFEMISM_static_library)
 set_property( TARGET UFEMISM_static_library PROPERTY Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mod_files/UFEMISM_static_library)
 
 # Initialise an empty list of executables
 set( all_programs "")
 
 # UFEMISM programs (main and tests)
-foreach(program_source IN LISTS UFEMISM_program_sources)
+foreach(program_source IN LISTS UFEMISM_program_sources_sanitized)
 	get_filename_component( program_name "${program_source}" NAME_WE)
 	add_executable( ${program_name} "${program_source}")
 	list( APPEND all_programs ${program_name})
